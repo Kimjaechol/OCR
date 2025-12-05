@@ -71,14 +71,25 @@
 
 ### 2. 모델 다운로드
 
-```bash
-# GOT-OCR 모델 다운로드 (HuggingFace)
-# https://huggingface.co/stepfun-ai/GOT-OCR2_0 에서 다운로드
-# weights/GOT-OCR2_0/ 폴더에 모든 파일 배치
+GOT-OCR 모델 (1.4GB)을 다운로드해야 합니다.
 
-# YOLO 모델 (기본 제공 또는 커스텀)
-# weights/yolo_table_best.pt/ 폴더 확인
+**방법 1: 자동 다운로드 스크립트 (권장)**
+```bash
+# Python 스크립트 사용
+python download_model.py
+
+# 또는 Shell 스크립트 사용
+chmod +x download_model.sh
+./download_model.sh
 ```
+
+**방법 2: 수동 다운로드**
+1. HuggingFace 방문: https://huggingface.co/stepfun-ai/GOT-OCR2_0
+2. `model.safetensors` 파일 다운로드 (1.4GB)
+3. `weights/GOT-OCR2_0/` 폴더에 배치
+
+**YOLO 모델** (기본 제공)
+- `weights/yolo_table_best.pt/yolov8n.pt` 이미 포함됨
 
 ### 3. 환경 설정
 

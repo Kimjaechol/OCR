@@ -48,10 +48,11 @@ outputs/
 *.tmp
 *.temp
 
-# Model weights (large files)
-# weights/*.safetensors
-# weights/*.bin
-# weights/*.pt (except yolov8n.pt)
+# Model weights (large files - download separately)
+weights/GOT-OCR2_0/*.safetensors
+weights/GOT-OCR2_0/*.bin
+*.safetensors
+*.bin
 
 # OS files
 .DS_Store
