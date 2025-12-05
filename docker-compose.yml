@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  # 1. API 서버
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - ./weights:/app/weights
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    env_file: .env
+    depends_on:
+      - redis
+
+  # 2. Celery Worker (GPU 사용)
+  worker:
+    build: .
+    volumes:
+      - .:/app
+      - ./weights:/app/weights
+    # GPU 할당 설정 (NVIDIA Docker 필요)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: celery -A tasks worker --loglevel=info --concurrency=1
+    env_file: .env
+    depends_on:
+      - redis
+
+  # 3. Redis (메시지 브로커)
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
