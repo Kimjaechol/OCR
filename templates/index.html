@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>법률 문서 OCR - 초가성비 디지털 변환 서비스</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --gray-50: #f9fafb;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-500: #6b7280;
+            --gray-700: #374151;
+            --gray-900: #111827;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .pricing-badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 8px 16px;
+            border-radius: 20px;
+            margin-top: 12px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .upload-zone {
+            border: 2px dashed var(--gray-300);
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            background: var(--gray-50);
+        }
+
+        .upload-zone:hover,
+        .upload-zone.dragover {
+            border-color: var(--primary);
+            background: rgba(37, 99, 235, 0.05);
+        }
+
+        .upload-icon {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 16px;
+            background: var(--gray-200);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+        }
+
+        .upload-zone h3 {
+            color: var(--gray-700);
+            margin-bottom: 8px;
+        }
+
+        .upload-zone p {
+            color: var(--gray-500);
+            font-size: 14px;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-secondary {
+            background: var(--gray-200);
+            color: var(--gray-700);
+        }
+
+        .btn-secondary:hover {
+            background: var(--gray-300);
+        }
+
+        .file-info {
+            display: none;
+            margin-top: 20px;
+            padding: 16px;
+            background: var(--gray-50);
+            border-radius: 8px;
+        }
+
+        .file-info.active {
+            display: block;
+        }
+
+        .file-info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .file-info-label {
+            color: var(--gray-500);
+            font-size: 14px;
+        }
+
+        .file-info-value {
+            font-weight: 600;
+            color: var(--gray-700);
+        }
+
+        .options {
+            margin-top: 20px;
+            padding: 20px;
+            background: var(--gray-50);
+            border-radius: 8px;
+        }
+
+        .options h4 {
+            margin-bottom: 12px;
+            color: var(--gray-700);
+        }
+
+        .option-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .option-row input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+        }
+
+        .option-row label {
+            font-size: 14px;
+            color: var(--gray-700);
+        }
+
+        .action-buttons {
+            margin-top: 24px;
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        /* Progress Section */
+        .progress-section {
+            display: none;
+            margin-top: 24px;
+        }
+
+        .progress-section.active {
+            display: block;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .progress-title {
+            font-weight: 600;
+            color: var(--gray-700);
+        }
+
+        .progress-percent {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .progress-bar-container {
+            height: 12px;
+            background: var(--gray-200);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary) 0%, var(--success) 100%);
+            border-radius: 6px;
+            transition: width 0.3s ease;
+        }
+
+        .progress-status {
+            margin-top: 12px;
+            font-size: 14px;
+            color: var(--gray-500);
+            text-align: center;
+        }
+
+        /* Result Section */
+        .result-section {
+            display: none;
+            margin-top: 24px;
+        }
+
+        .result-section.active {
+            display: block;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .result-stats {
+            display: flex;
+            gap: 20px;
+        }
+
+        .result-stat {
+            text-align: center;
+        }
+
+        .result-stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .result-stat-label {
+            font-size: 12px;
+            color: var(--gray-500);
+        }
+
+        .result-content {
+            background: var(--gray-900);
+            border-radius: 8px;
+            padding: 20px;
+            max-height: 400px;
+            overflow: auto;
+        }
+
+        .result-content pre {
+            color: #e5e7eb;
+            font-family: 'JetBrains Mono', 'Consolas', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .result-actions {
+            margin-top: 16px;
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: var(--gray-500);
+            font-size: 12px;
+            border-top: 1px solid var(--gray-200);
+        }
+
+        .footer a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 16px 24px;
+            background: var(--gray-900);
+            color: white;
+            border-radius: 8px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .toast.success {
+            background: var(--success);
+        }
+
+        .toast.error {
+            background: var(--danger);
+        }
+
+        /* Responsive */
+        @media (max-width: 640px) {
+            .header h1 {
+                font-size: 22px;
+            }
+
+            .content {
+                padding: 20px;
+            }
+
+            .upload-zone {
+                padding: 30px 20px;
+            }
+
+            .result-stats {
+                flex-direction: column;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="header">
+                <h1>법률 문서 OCR 서비스</h1>
+                <p>초가성비 디지털 변환 - 99.99% 정확도 목표</p>
+                <div class="pricing-badge">페이지당 50원</div>
+            </div>
+
+            <div class="content">
+                <!-- Upload Zone -->
+                <div class="upload-zone" id="uploadZone">
+                    <div class="upload-icon">📄</div>
+                    <h3>파일을 드래그하거나 클릭하세요</h3>
+                    <p>PDF (최대 5000페이지), PNG, JPG, TIFF 지원</p>
+                    <input type="file" class="file-input" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.tiff,.bmp">
+                </div>
+
+                <!-- File Info -->
+                <div class="file-info" id="fileInfo">
+                    <div class="file-info-row">
+                        <span class="file-info-label">파일명</span>
+                        <span class="file-info-value" id="fileName">-</span>
+                    </div>
+                    <div class="file-info-row">
+                        <span class="file-info-label">파일 크기</span>
+                        <span class="file-info-value" id="fileSize">-</span>
+                    </div>
+                    <div class="file-info-row">
+                        <span class="file-info-label">예상 비용</span>
+                        <span class="file-info-value" id="estimatedPrice">-</span>
+                    </div>
+                </div>
+
+                <!-- Options -->
+                <div class="options">
+                    <h4>처리 옵션</h4>
+                    <div class="option-row">
+                        <input type="checkbox" id="applyGemini" checked>
+                        <label for="applyGemini">Gemini AI 교정 적용 (권장)</label>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="action-buttons">
+                    <button class="btn btn-secondary" id="resetBtn" style="display: none;">다시 선택</button>
+                    <button class="btn btn-primary" id="uploadBtn" disabled>OCR 시작</button>
+                </div>
+
+                <!-- Progress Section -->
+                <div class="progress-section" id="progressSection">
+                    <div class="progress-header">
+                        <span class="progress-title">처리 중...</span>
+                        <span class="progress-percent" id="progressPercent">0%</span>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-status" id="progressStatus">대기 중...</div>
+                </div>
+
+                <!-- Result Section -->
+                <div class="result-section" id="resultSection">
+                    <div class="result-header">
+                        <h3>처리 완료!</h3>
+                        <div class="result-stats">
+                            <div class="result-stat">
+                                <div class="result-stat-value" id="resultPages">0</div>
+                                <div class="result-stat-label">페이지</div>
+                            </div>
+                            <div class="result-stat">
+                                <div class="result-stat-value" id="resultTables">0</div>
+                                <div class="result-stat-label">표</div>
+                            </div>
+                            <div class="result-stat">
+                                <div class="result-stat-value" id="resultTime">0s</div>
+                                <div class="result-stat-label">처리 시간</div>
+                            </div>
+                            <div class="result-stat">
+                                <div class="result-stat-value" id="resultPrice">0원</div>
+                                <div class="result-stat-label">비용</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="result-content">
+                        <pre id="resultText"></pre>
+                    </div>
+                    <div class="result-actions">
+                        <button class="btn btn-secondary" onclick="copyToClipboard()">복사</button>
+                        <button class="btn btn-primary" onclick="downloadMarkdown()">다운로드</button>
+                        <button class="btn btn-secondary" onclick="resetAll()">새 파일</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="footer">
+                <p>API 문서: <a href="/docs" target="_blank">/docs</a> |
+                   모니터링: <a href="http://localhost:5555" target="_blank">Flower</a></p>
+                <p style="margin-top: 8px;">GOT-OCR + PaddleOCR + Gemini AI 기반</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // Elements
+        const uploadZone = document.getElementById('uploadZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const progressSection = document.getElementById('progressSection');
+        const resultSection = document.getElementById('resultSection');
+
+        let selectedFile = null;
+        let currentTaskId = null;
+        let pollInterval = null;
+        let currentResult = null;
+
+        // Drag and Drop
+        uploadZone.addEventListener('click', () => fileInput.click());
+
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('dragover');
+        });
+
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('dragover');
+        });
+
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileSelect(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileSelect(e.target.files[0]);
+            }
+        });
+
+        function handleFileSelect(file) {
+            selectedFile = file;
+
+            // Update UI
+            document.getElementById('fileName').textContent = file.name;
+            document.getElementById('fileSize').textContent = formatFileSize(file.size);
+
+            // Estimate price (rough estimate: 1 page per 100KB for images, check PDF later)
+            let estimatedPages = file.type === 'application/pdf' ? '확인 중...' : 1;
+            document.getElementById('estimatedPrice').textContent =
+                typeof estimatedPages === 'number' ? `${estimatedPages * 50}원` : estimatedPages;
+
+            fileInfo.classList.add('active');
+            uploadBtn.disabled = false;
+            resetBtn.style.display = 'inline-block';
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        // Reset
+        resetBtn.addEventListener('click', resetAll);
+
+        function resetAll() {
+            selectedFile = null;
+            currentTaskId = null;
+            currentResult = null;
+
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+
+            fileInput.value = '';
+            fileInfo.classList.remove('active');
+            uploadBtn.disabled = true;
+            resetBtn.style.display = 'none';
+            progressSection.classList.remove('active');
+            resultSection.classList.remove('active');
+        }
+
+        // Upload
+        uploadBtn.addEventListener('click', startUpload);
+
+        async function startUpload() {
+            if (!selectedFile) return;
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+
+            const applyGemini = document.getElementById('applyGemini').checked;
+
+            try {
+                uploadBtn.disabled = true;
+                uploadBtn.textContent = '업로드 중...';
+
+                const response = await fetch(`/ocr/upload?apply_gemini=${applyGemini}`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    currentTaskId = data.task_id;
+
+                    // Update estimated price
+                    if (data.estimated_price_krw) {
+                        document.getElementById('estimatedPrice').textContent = `${data.estimated_price_krw.toLocaleString()}원`;
+                    }
+
+                    showToast('처리가 시작되었습니다', 'success');
+                    startPolling();
+                    progressSection.classList.add('active');
+                } else {
+                    throw new Error(data.detail || '업로드 실패');
+                }
+            } catch (error) {
+                showToast(error.message, 'error');
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = 'OCR 시작';
+            }
+        }
+
+        // Polling
+        function startPolling() {
+            pollInterval = setInterval(checkProgress, 1000);
+        }
+
+        async function checkProgress() {
+            if (!currentTaskId) return;
+
+            try {
+                const response = await fetch(`/ocr/status/${currentTaskId}`);
+                const data = await response.json();
+
+                // Update progress UI
+                const progress = data.progress || 0;
+                document.getElementById('progressPercent').textContent = `${progress}%`;
+                document.getElementById('progressBar').style.width = `${progress}%`;
+                document.getElementById('progressStatus').textContent = data.status || '처리 중...';
+
+                if (data.current_page && data.total_pages) {
+                    document.getElementById('progressStatus').textContent =
+                        `${data.status} (${data.current_page}/${data.total_pages} 페이지)`;
+                }
+
+                // Check completion
+                if (data.state === 'completed') {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    showResult(data.result);
+                } else if (data.state === 'failed') {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    showToast(data.error || '처리 실패', 'error');
+                    uploadBtn.disabled = false;
+                    uploadBtn.textContent = 'OCR 시작';
+                }
+            } catch (error) {
+                console.error('Progress check error:', error);
+            }
+        }
+
+        // Show Result
+        function showResult(result) {
+            currentResult = result;
+
+            progressSection.classList.remove('active');
+            resultSection.classList.add('active');
+
+            document.getElementById('resultPages').textContent = result.page_count || 1;
+            document.getElementById('resultTables').textContent = result.total_tables || result.tables_count || 0;
+            document.getElementById('resultTime').textContent =
+                result.processing_time ? `${result.processing_time.toFixed(1)}s` : '-';
+            document.getElementById('resultPrice').textContent =
+                result.price_krw ? `${result.price_krw.toLocaleString()}원` : `${(result.page_count || 1) * 50}원`;
+
+            document.getElementById('resultText').textContent = result.markdown || result.raw_text || '';
+
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'OCR 시작';
+
+            showToast('처리 완료!', 'success');
+        }
+
+        // Copy to clipboard
+        function copyToClipboard() {
+            if (!currentResult) return;
+
+            navigator.clipboard.writeText(currentResult.markdown || currentResult.raw_text || '')
+                .then(() => showToast('클립보드에 복사되었습니다', 'success'))
+                .catch(() => showToast('복사 실패', 'error'));
+        }
+
+        // Download markdown
+        function downloadMarkdown() {
+            if (!currentResult) return;
+
+            const content = currentResult.markdown || currentResult.raw_text || '';
+            const blob = new Blob([content], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `ocr_result_${new Date().toISOString().slice(0, 10)}.md`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Toast
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast show ' + type;
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

@@ -1,117 +1,387 @@
+"""
+Legal Document OCR - Layout Analyzer Module
+============================================
+YOLOv8 + Heuristic table detection for legal documents
+Detects both bordered and borderless tables
+"""
+
 import cv2
 import numpy as np
-from ultralytics import YOLO
+from typing import List, Dict, Tuple, Optional, Union
+from dataclasses import dataclass
+from pathlib import Path
+from loguru import logger
+
+try:
+    from ultralytics import YOLO
+except ImportError:
+    logger.warning("ultralytics not installed. YOLO detection will be unavailable.")
+    YOLO = None
+
+
+@dataclass
+class DetectedRegion:
+    """Represents a detected region (table or text area)"""
+    region_type: str  # 'yolo_table', 'heuristic_table', 'text'
+    box: Tuple[int, int, int, int]  # (x1, y1, x2, y2)
+    confidence: float
+    image: Optional[np.ndarray] = None
+
 
 class LayoutAnalyzer:
-    def __init__(self, model_path='yolov8n.pt'):
+    """
+    Layout analyzer for legal documents using YOLOv8 and heuristic methods.
+
+    Features:
+    - YOLO-based table detection (bordered tables)
+    - Heuristic-based borderless table detection (vertical river analysis)
+    - Configurable confidence thresholds
+    - GPU acceleration support
+    """
+
+    def __init__(
+        self,
+        model_path: str = 'yolov8n.pt',
+        confidence_threshold: float = 0.4,
+        table_class_id: int = 0,
+        min_area_ratio: float = 0.05,
+        use_gpu: bool = True
+    ):
         """
-        초기화: YOLO 모델 로드
-        model_path: 표 탐지에 특화된 모델 경로 (.pt) 권장
-        (예: 'foduucom/table-detection-and-extraction'의 가중치)
+        Initialize the layout analyzer.
+
+        Args:
+            model_path: Path to YOLO model (.pt file)
+            confidence_threshold: Minimum confidence for table detection
+            table_class_id: Class ID for tables in the model
+            min_area_ratio: Minimum area ratio for borderless table detection
+            use_gpu: Whether to use GPU acceleration
         """
         self.model_path = model_path
+        self.confidence_threshold = confidence_threshold
+        self.table_class_id = table_class_id
+        self.min_area_ratio = min_area_ratio
+        self.use_gpu = use_gpu
+        self.model = None
+
+        self._load_model()
+
+    def _load_model(self) -> None:
+        """Load YOLO model with fallback handling"""
+        if YOLO is None:
+            logger.error("YOLO not available. Table detection disabled.")
+            return
+
         try:
-            # 커스텀 모델이 없으면 기본 모델 로드 (경고 발생 가능)
-            self.model = YOLO(self.model_path)
+            model_path = Path(self.model_path)
+            if model_path.exists():
+                self.model = YOLO(str(model_path))
+                logger.info(f"Loaded YOLO model from: {model_path}")
+            else:
+                # Try default model
+                logger.warning(f"Model not found at {model_path}, using yolov8n.pt")
+                self.model = YOLO('yolov8n.pt')
+
+            # Set device
+            if self.use_gpu:
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        self.model.to('cuda')
+                        logger.info("YOLO model loaded on GPU")
+                    else:
+                        logger.info("CUDA not available, using CPU")
+                except Exception as e:
+                    logger.warning(f"Could not move model to GPU: {e}")
+
         except Exception as e:
-            print(f"[Warning] 지정된 모델 로드 실패, 기본 yolov8n.pt 사용: {e}")
-            self.model = YOLO('yolov8n.pt')
-            
-        self.TABLE_CLASS_ID = 0  # 모델에 따라 다를 수 있음 (보통 0)
+            logger.error(f"Failed to load YOLO model: {e}")
+            self.model = None
 
-    def detect_borderless_tables(self, image, existing_boxes):
+    def _calculate_iou(
+        self,
+        box1: Tuple[int, int, int, int],
+        box2: Tuple[int, int, int, int]
+    ) -> float:
+        """Calculate Intersection over Union between two boxes"""
+        x1 = max(box1[0], box2[0])
+        y1 = max(box1[1], box2[1])
+        x2 = min(box1[2], box2[2])
+        y2 = min(box1[3], box2[3])
+
+        intersection = max(0, x2 - x1) * max(0, y2 - y1)
+
+        area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+        area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+
+        union = area1 + area2 - intersection
+
+        return intersection / union if union > 0 else 0
+
+    def _boxes_overlap(
+        self,
+        box1: Tuple[int, int, int, int],
+        box2: Tuple[int, int, int, int],
+        threshold: float = 0.1
+    ) -> bool:
+        """Check if two boxes overlap significantly"""
+        x1, y1, x2, y2 = box1
+        ex1, ey1, ex2, ey2 = box2
+
+        # Check for any overlap
+        if x1 > ex2 or x2 < ex1 or y1 > ey2 or y2 < ey1:
+            return False
+
+        return self._calculate_iou(box1, box2) > threshold
+
+    def detect_tables_yolo(
+        self,
+        image: np.ndarray
+    ) -> List[DetectedRegion]:
         """
-        [알고리즘] YOLO가 놓친 '선 없는 표'를 수직 공백(Vertical River) 분석으로 탐지
+        Detect tables using YOLO model.
+
+        Args:
+            image: BGR image array
+
+        Returns:
+            List of detected table regions
         """
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        
-        # 1. 이진화 및 전처리
-        _, binary = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
-        
-        # 2. 텍스트 라인 뭉치기 (수평 팽창)
-        kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (30, 1))
-        dilated = cv2.dilate(binary, kernel_h, iterations=1)
-        
-        # 3. 윤곽선 검출
-        contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        potential_tables = []
-        img_h, img_w = image.shape[:2]
-        min_area = (img_w * img_h) * 0.05  # 전체의 5% 이상 크기만
-
-        for cnt in contours:
-            x, y, w, h = cv2.boundingRect(cnt)
-            
-            # 기존 YOLO 박스와 겹치면 패스
-            is_overlap = False
-            for (ex_x1, ex_y1, ex_x2, ex_y2) in existing_boxes:
-                # IOU 비슷한 로직: 교차 영역이 있으면 건너뜀
-                if not (x > ex_x2 or x + w < ex_x1 or y > ex_y2 or y + h < ex_y1):
-                    is_overlap = True
-                    break
-            if is_overlap or (w * h < min_area): continue
-
-            # 4. 수직 투영 (Vertical Projection)으로 공백 확인
-            roi = binary[y:y+h, x:x+w]
-            v_proj = np.sum(roi, axis=0)
-            
-            # 값이 0인 구간(공백) 찾기
-            blank_indices = np.where(v_proj == 0)[0]
-            
-            if len(blank_indices) > 0:
-                # 공백 구간이 끊어지는 지점을 찾아 '열(Column)' 개수 추정
-                gaps = np.diff(blank_indices)
-                # gap이 1이 아닌 지점이 열과 열 사이의 텍스트 덩어리
-                num_columns = len(np.where(gaps > 1)[0]) + 1
-                
-                # 열이 2개 이상이면 '선 없는 표'로 간주
-                if num_columns >= 2:
-                    potential_tables.append([x, y, x+w, y+h])
-
-        return potential_tables
-
-    def split_content(self, image_path):
-        """
-        이미지를 입력받아 [표 리스트]와 [텍스트만 남은 이미지]로 분리 반환
-        """
-        image = cv2.imread(image_path)
-        if image is None: raise ValueError(f"Image load failed: {image_path}")
-        
         tables = []
-        detected_boxes = [] # [x1, y1, x2, y2]
 
-        # 1. YOLO 실행 (1차 탐지)
-        results = self.model(image)
-        for result in results:
-            for box in result.boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                conf = float(box.conf[0])
-                cls = int(box.cls[0])
-                
-                if cls == self.TABLE_CLASS_ID and conf > 0.4: # 신뢰도 0.4 이상
-                    detected_boxes.append([x1, y1, x2, y2])
-                    
-                    # 표 이미지 잘라내기 (Deep Copy)
-                    crop = image[y1:y2, x1:x2].copy()
-                    tables.append({
-                        "type": "yolo_table",
-                        "box": [x1, y1, x2, y2],
-                        "image": crop
-                    })
-                    # 원본에서 지우기 (흰색 칠하기) -> PaddleOCR이 읽지 못하게
-                    cv2.rectangle(image, (x1, y1), (x2, y2), (255, 255, 255), -1)
+        if self.model is None:
+            logger.warning("YOLO model not loaded, skipping YOLO detection")
+            return tables
 
-        # 2. Heuristic 실행 (2차 탐지 - 선 없는 표)
-        hidden_tables = self.detect_borderless_tables(image, detected_boxes)
-        for (x1, y1, x2, y2) in hidden_tables:
-            crop = image[y1:y2, x1:x2].copy()
-            tables.append({
-                "type": "heuristic_table",
-                "box": [x1, y1, x2, y2],
-                "image": crop
-            })
+        try:
+            results = self.model(image, verbose=False)
+
+            for result in results:
+                if result.boxes is None:
+                    continue
+
+                for box in result.boxes:
+                    x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
+                    conf = float(box.conf[0].cpu().numpy())
+                    cls = int(box.cls[0].cpu().numpy())
+
+                    # Filter by class and confidence
+                    if cls == self.table_class_id and conf >= self.confidence_threshold:
+                        # Ensure valid coordinates
+                        x1, y1 = max(0, x1), max(0, y1)
+                        x2 = min(image.shape[1], x2)
+                        y2 = min(image.shape[0], y2)
+
+                        if x2 > x1 and y2 > y1:
+                            crop = image[y1:y2, x1:x2].copy()
+                            tables.append(DetectedRegion(
+                                region_type="yolo_table",
+                                box=(x1, y1, x2, y2),
+                                confidence=conf,
+                                image=crop
+                            ))
+
+            logger.debug(f"YOLO detected {len(tables)} tables")
+
+        except Exception as e:
+            logger.error(f"YOLO detection error: {e}")
+
+        return tables
+
+    def detect_borderless_tables(
+        self,
+        image: np.ndarray,
+        existing_boxes: List[Tuple[int, int, int, int]]
+    ) -> List[DetectedRegion]:
+        """
+        Detect borderless tables using vertical projection analysis.
+
+        Algorithm:
+        1. Binarize and dilate horizontally to merge text lines
+        2. Find contours of text blocks
+        3. Analyze vertical projection to find column gaps
+        4. If multiple columns detected, mark as borderless table
+
+        Args:
+            image: BGR image array
+            existing_boxes: List of already detected table boxes to avoid overlap
+
+        Returns:
+            List of detected borderless table regions
+        """
+        tables = []
+
+        try:
+            # Convert to grayscale
+            if len(image.shape) == 3:
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = image.copy()
+
+            img_h, img_w = gray.shape[:2]
+            min_area = (img_w * img_h) * self.min_area_ratio
+
+            # Binary threshold
+            _, binary = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
+
+            # Horizontal dilation to merge text lines
+            kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (30, 1))
+            dilated = cv2.dilate(binary, kernel_h, iterations=1)
+
+            # Find contours
+            contours, _ = cv2.findContours(
+                dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+
+            for cnt in contours:
+                x, y, w, h = cv2.boundingRect(cnt)
+
+                # Skip small regions
+                if w * h < min_area:
+                    continue
+
+                # Skip if overlaps with existing tables
+                current_box = (x, y, x + w, y + h)
+                is_overlap = any(
+                    self._boxes_overlap(current_box, existing_box)
+                    for existing_box in existing_boxes
+                )
+                if is_overlap:
+                    continue
+
+                # Vertical projection analysis
+                roi = binary[y:y+h, x:x+w]
+                v_proj = np.sum(roi, axis=0)
+
+                # Find blank columns (gaps)
+                blank_indices = np.where(v_proj == 0)[0]
+
+                if len(blank_indices) > 0:
+                    # Count column separators
+                    gaps = np.diff(blank_indices)
+                    num_columns = len(np.where(gaps > 1)[0]) + 1
+
+                    # If 2+ columns, likely a borderless table
+                    if num_columns >= 2:
+                        # Ensure valid coordinates
+                        x1, y1 = max(0, x), max(0, y)
+                        x2 = min(img_w, x + w)
+                        y2 = min(img_h, y + h)
+
+                        crop = image[y1:y2, x1:x2].copy()
+                        tables.append(DetectedRegion(
+                            region_type="heuristic_table",
+                            box=(x1, y1, x2, y2),
+                            confidence=0.7,  # Lower confidence for heuristic
+                            image=crop
+                        ))
+
+            logger.debug(f"Heuristic detected {len(tables)} borderless tables")
+
+        except Exception as e:
+            logger.error(f"Borderless table detection error: {e}")
+
+        return tables
+
+    def split_content(
+        self,
+        image_input: Union[str, np.ndarray, Path]
+    ) -> Tuple[List[DetectedRegion], np.ndarray]:
+        """
+        Split image into tables and text regions.
+
+        Args:
+            image_input: Image path or BGR image array
+
+        Returns:
+            Tuple of (list of table regions, text-only image)
+        """
+        # Load image if path provided
+        if isinstance(image_input, (str, Path)):
+            image = cv2.imread(str(image_input))
+            if image is None:
+                raise ValueError(f"Failed to load image: {image_input}")
+        else:
+            image = image_input.copy()
+
+        all_tables = []
+        detected_boxes = []
+
+        # Step 1: YOLO detection (bordered tables)
+        yolo_tables = self.detect_tables_yolo(image)
+        for table in yolo_tables:
+            all_tables.append(table)
+            detected_boxes.append(table.box)
+
+            # Mask out table region (white fill)
+            x1, y1, x2, y2 = table.box
             cv2.rectangle(image, (x1, y1), (x2, y2), (255, 255, 255), -1)
 
-        # tables: GOT-OCR로 보낼 이미지 리스트
-        # image: 텍스트만 남은 이미지 (PaddleOCR용)
-        return tables, image
+        # Step 2: Heuristic detection (borderless tables)
+        heuristic_tables = self.detect_borderless_tables(image, detected_boxes)
+        for table in heuristic_tables:
+            all_tables.append(table)
+
+            # Mask out table region
+            x1, y1, x2, y2 = table.box
+            cv2.rectangle(image, (x1, y1), (x2, y2), (255, 255, 255), -1)
+
+        logger.info(
+            f"Layout analysis complete: {len(yolo_tables)} YOLO tables, "
+            f"{len(heuristic_tables)} heuristic tables"
+        )
+
+        return all_tables, image
+
+    def analyze(
+        self,
+        image_input: Union[str, np.ndarray, Path]
+    ) -> Dict:
+        """
+        Perform full layout analysis.
+
+        Args:
+            image_input: Image path or BGR image array
+
+        Returns:
+            Dictionary with analysis results
+        """
+        tables, text_image = self.split_content(image_input)
+
+        return {
+            "tables": [
+                {
+                    "type": t.region_type,
+                    "box": t.box,
+                    "confidence": t.confidence
+                }
+                for t in tables
+            ],
+            "table_count": len(tables),
+            "table_images": [t.image for t in tables],
+            "text_image": text_image
+        }
+
+
+# Convenience function
+def analyze_layout(
+    image_path: str,
+    model_path: str = 'yolov8n.pt',
+    confidence_threshold: float = 0.4
+) -> Tuple[List[DetectedRegion], np.ndarray]:
+    """
+    Convenience function for layout analysis.
+
+    Args:
+        image_path: Path to image file
+        model_path: Path to YOLO model
+        confidence_threshold: Minimum confidence for detection
+
+    Returns:
+        Tuple of (table regions, text-only image)
+    """
+    analyzer = LayoutAnalyzer(
+        model_path=model_path,
+        confidence_threshold=confidence_threshold
+    )
+    return analyzer.split_content(image_path)

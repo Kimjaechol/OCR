@@ -1,243 +1,627 @@
+"""
+Legal Document OCR - OCR Engine Module
+=======================================
+Hybrid OCR engine using GOT-OCR (tables) + PaddleOCR (text)
+with legal document specialized parsing and correction
+"""
+
 import cv2
 import numpy as np
 import re
 import statistics
 import os
+import tempfile
+from typing import List, Dict, Optional, Tuple, Union
+from dataclasses import dataclass, field
+from pathlib import Path
+from loguru import logger
+
 import torch
-from paddleocr import PaddleOCR
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# 같은 폴더에 있는 layout_analyzer.py에서 클래스 임포트
 try:
-    from layout_analyzer import LayoutAnalyzer
+    from paddleocr import PaddleOCR
 except ImportError:
-    print("[Warning] layout_analyzer.py를 찾을 수 없습니다. 같은 폴더에 위치시켜주세요.")
-    LayoutAnalyzer = None
+    logger.warning("PaddleOCR not installed")
+    PaddleOCR = None
 
-# =========================================================
-# 1. UltimateLegalParser: 텍스트 구조 분석 및 교정 클래스
-# =========================================================
-class UltimateLegalParser:
-    def __init__(self, image):
-        self.image = image # OpenCV Grayscale Image
-        # 법률 문서 스타일 기준값
-        self.H1_SCALE = 1.4       # 본문보다 1.4배 크면 대제목
-        self.H2_SCALE = 1.15      # 본문보다 1.15배 크면 소제목
-        self.INDENT_PX = 20       # 기준선보다 20px 밀리면 들여쓰기
-        self.BOLD_RATIO = 1.10    # 평균 진하기보다 10% 진하면 볼드체
+try:
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+except ImportError:
+    logger.warning("transformers not installed")
+    AutoModelForCausalLM = None
+    AutoTokenizer = None
 
-    def get_geometry(self, box):
-        """PaddleOCR 박스 좌표에서 기하학적 정보 추출"""
+from layout_analyzer import LayoutAnalyzer, DetectedRegion
+
+
+@dataclass
+class TextSegment:
+    """Represents a parsed text segment with formatting info"""
+    category: str  # 'text' or 'table'
+    y_pos: int
+    text: str
+    tag: str = "p"  # 'h1', 'h2', 'p'
+    is_bold: bool = False
+    is_indented: bool = False
+
+
+@dataclass
+class OCRResult:
+    """Complete OCR result for a document page"""
+    page_number: int
+    raw_text: str
+    markdown: str
+    segments: List[TextSegment] = field(default_factory=list)
+    tables_count: int = 0
+    confidence: float = 0.0
+    processing_time: float = 0.0
+
+
+class LegalTextParser:
+    """
+    Legal document text parser with structure analysis.
+
+    Features:
+    - Heading detection (h1, h2 based on font size)
+    - Bold text detection using pixel density
+    - Indentation detection
+    - Legal-specific typo correction
+    """
+
+    # Legal document style thresholds
+    H1_SCALE = 1.4       # 1.4x median height = h1
+    H2_SCALE = 1.15      # 1.15x median height = h2
+    INDENT_PX = 20       # 20px from baseline = indented
+    BOLD_RATIO = 1.10    # 10% denser = bold
+
+    # Legal typo patterns
+    LEGAL_TYPO_PATTERNS = [
+        # 갑(甲) 뒤의 오타 복원
+        (r'\bZ\b', '乙'),
+        (r'\bE\b', '乙'),
+        # 법조문 숫자 오타
+        (r'(제\s*\d+)[oO](조)', r'\g<1>0\g<2>'),
+        # 띄어쓰기 오류
+        (r'제(\d+)조', r'제\g<1>조'),
+    ]
+
+    # 로마 숫자 매핑
+    ROMAN_NUMERALS = {
+        'I': 'Ⅰ', 'II': 'Ⅱ', 'III': 'Ⅲ',
+        'IV': 'Ⅳ', 'V': 'Ⅴ', 'VI': 'Ⅵ',
+        'VII': 'Ⅶ', 'VIII': 'Ⅷ', 'IX': 'Ⅸ', 'X': 'Ⅹ'
+    }
+
+    def __init__(self, image: np.ndarray):
+        """
+        Initialize parser with grayscale image.
+
+        Args:
+            image: Grayscale OpenCV image for density analysis
+        """
+        if len(image.shape) == 3:
+            self.image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            self.image = image
+
+    def get_geometry(self, box: List) -> Tuple[int, int, int, int, np.ndarray]:
+        """
+        Extract geometric information from PaddleOCR box.
+
+        Args:
+            box: PaddleOCR box coordinates [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+
+        Returns:
+            Tuple of (height, x, y, width, points_array)
+        """
         pts = np.array(box, dtype=np.int32)
         x, y, w, h = cv2.boundingRect(pts)
         return h, x, y, w, pts
 
-    def is_bold(self, pts, median_density):
-        """[OpenCV] 글자 영역의 픽셀 밀도(Density)를 계산하여 볼드체 여부 판별"""
-        mask = np.zeros_like(self.image)
-        cv2.fillPoly(mask, [pts], 255)
-        
-        # 원본에서 글자만 추출 (마스킹)
-        masked_image = cv2.bitwise_and(self.image, self.image, mask=mask)
-        
-        # 이진화 (글자=흰색, 배경=검정으로 변환)
-        _, binary = cv2.threshold(masked_image, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        
-        x, y, w, h = cv2.boundingRect(pts)
-        area = w * h
-        if area == 0: return False
-        
-        roi = binary[y:y+h, x:x+w]
-        density = cv2.countNonZero(roi) / area
-        
-        # 평균보다 일정 비율 이상 진하면 볼드체
+    def calculate_density(self, pts: np.ndarray) -> float:
+        """
+        Calculate pixel density of text region.
+
+        Args:
+            pts: Polygon points of text region
+
+        Returns:
+            Pixel density (0-1)
+        """
+        try:
+            mask = np.zeros_like(self.image)
+            cv2.fillPoly(mask, [pts], 255)
+
+            masked = cv2.bitwise_and(self.image, self.image, mask=mask)
+            _, binary = cv2.threshold(
+                masked, 0, 255,
+                cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+            )
+
+            x, y, w, h = cv2.boundingRect(pts)
+            if w * h == 0:
+                return 0.0
+
+            roi = binary[y:y+h, x:x+w]
+            return cv2.countNonZero(roi) / (w * h)
+        except Exception:
+            return 0.0
+
+    def is_bold(self, pts: np.ndarray, median_density: float) -> bool:
+        """
+        Determine if text is bold based on pixel density.
+
+        Args:
+            pts: Polygon points
+            median_density: Median density of document
+
+        Returns:
+            True if text appears bold
+        """
+        if median_density == 0:
+            return False
+
+        density = self.calculate_density(pts)
         return density > (median_density * self.BOLD_RATIO)
 
-    def fix_typos(self, text):
-        """[Regex] 법률 문서 특화 오타 교정 로직"""
-        # 1. 인물/회사 명칭 오타: 갑(甲) 뒤의 Z, E, H 등을 을(乙)로 복원
-        if re.search(r'[갑甲]', text): 
-            text = re.sub(r'\bZ\b', '乙', text)
-            text = re.sub(r'\bE\b', '乙', text)
-        
-        # 2. 법조문 숫자 오타: '제1o조' -> '제10조'
-        text = re.sub(r'(제\s*\d+)[oO](조)', r'\1\2', text)
-        
-        # 3. 로마자 숫자 복원: I, II -> Ⅰ, Ⅱ
-        mapping = {'I': 'Ⅰ', 'II': 'Ⅱ', 'III': 'Ⅲ', 'IV': 'Ⅳ', 'V': 'Ⅴ'}
-        words = text.split()
-        new_words = []
-        for w in words:
-            if w in mapping:
-                new_words.append(mapping[w])
-            else:
-                new_words.append(w)
-        return " ".join(new_words)
+    def fix_typos(self, text: str) -> str:
+        """
+        Fix legal document specific typos.
 
-    def parse_text_segments(self, ocr_result):
-        """PaddleOCR 결과를 분석하여 구조화된 세그먼트 리스트 반환"""
-        if not ocr_result: return []
-        
-        # 1. 문서 전체 통계 분석
-        heights, densities, x_positions = [], [], []
-        
+        Args:
+            text: Raw OCR text
+
+        Returns:
+            Corrected text
+        """
+        # Apply regex patterns
+        for pattern, replacement in self.LEGAL_TYPO_PATTERNS:
+            if '갑' in text or '甲' in text:
+                text = re.sub(pattern, replacement, text)
+
+        # Roman numeral conversion
+        words = text.split()
+        corrected_words = []
+        for word in words:
+            if word in self.ROMAN_NUMERALS:
+                corrected_words.append(self.ROMAN_NUMERALS[word])
+            else:
+                corrected_words.append(word)
+
+        return ' '.join(corrected_words)
+
+    def parse_segments(self, ocr_result: List) -> List[TextSegment]:
+        """
+        Parse PaddleOCR results into structured segments.
+
+        Args:
+            ocr_result: PaddleOCR result list
+
+        Returns:
+            List of TextSegment objects
+        """
+        if not ocr_result:
+            return []
+
+        # Collect statistics
+        heights = []
+        densities = []
+        x_positions = []
+
         for line in ocr_result:
             box = line[0]
             h, x, y, w, pts = self.get_geometry(box)
             heights.append(h)
             x_positions.append(x)
-            
-            # 밀도 샘플링
-            mask = np.zeros_like(self.image)
-            cv2.fillPoly(mask, [pts], 255)
-            masked = cv2.bitwise_and(self.image, self.image, mask=mask)
-            _, binary = cv2.threshold(masked, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-            
-            if w*h > 0:
-                d = cv2.countNonZero(binary[y:y+h, x:x+w]) / (w*h)
-                densities.append(d)
 
+            density = self.calculate_density(pts)
+            if density > 0:
+                densities.append(density)
+
+        # Calculate medians
         median_h = statistics.median(heights) if heights else 20
         min_x = min(x_positions) if x_positions else 0
         median_d = statistics.median(densities) if densities else 0.5
 
-        # 2. 라인별 속성 판별
+        # Parse each line
         segments = []
         for line in ocr_result:
             box = line[0]
             raw_text = line[1][0]
+            confidence = line[1][1] if len(line[1]) > 1 else 0.0
+
             h, x, y, w, pts = self.get_geometry(box)
-            
-            # 오타 교정
+
+            # Apply typo correction
             text = self.fix_typos(raw_text)
-            
-            # 속성 판별
-            ratio = h / median_h
+
+            # Determine attributes
+            ratio = h / median_h if median_h > 0 else 1
             is_indented = (x - min_x) >= self.INDENT_PX
             is_bold = self.is_bold(pts, median_d)
-            
-            # 태그 결정
+
+            # Determine tag
             tag = "p"
-            if ratio >= self.H1_SCALE: tag = "h1"
-            elif ratio >= self.H2_SCALE: tag = "h2"
-            
-            segments.append({
-                "category": "text",
-                "y_pos": y,       # 문서 내 순서 정렬용
-                "text": text,
-                "tag": tag,
-                "is_bold": is_bold,
-                "is_indented": is_indented
-            })
+            if ratio >= self.H1_SCALE:
+                tag = "h1"
+            elif ratio >= self.H2_SCALE:
+                tag = "h2"
+
+            segments.append(TextSegment(
+                category="text",
+                y_pos=y,
+                text=text,
+                tag=tag,
+                is_bold=is_bold,
+                is_indented=is_indented
+            ))
+
         return segments
 
-# =========================================================
-# 2. HybridOCRPipeline: 실제 모델 구동 및 실행 클래스
-# =========================================================
+
 class HybridOCRPipeline:
     """
-    [통합 파이프라인]
-    LayoutAnalyzer(YOLO) -> PaddleOCR(Text) + GOT-OCR(Table) -> UltimateLegalParser
+    Hybrid OCR pipeline combining multiple OCR engines.
+
+    Architecture:
+    1. LayoutAnalyzer (YOLO) - Split tables and text
+    2. PaddleOCR - Korean text recognition
+    3. GOT-OCR - Table structure recognition
+    4. LegalTextParser - Structure analysis
+
+    Features:
+    - GPU acceleration
+    - Batch processing
+    - Error recovery
+    - Memory management
     """
-    def __init__(self, got_model_path, yolo_model_path):
-        # 1. Layout Analyzer 로드 (표 분리)
-        if LayoutAnalyzer:
-            self.layout_analyzer = LayoutAnalyzer(yolo_model_path)
+
+    def __init__(
+        self,
+        got_model_path: str,
+        yolo_model_path: str,
+        use_gpu: bool = True,
+        paddle_lang: str = 'korean'
+    ):
+        """
+        Initialize the hybrid OCR pipeline.
+
+        Args:
+            got_model_path: Path to GOT-OCR model
+            yolo_model_path: Path to YOLO model for table detection
+            use_gpu: Whether to use GPU acceleration
+            paddle_lang: Language for PaddleOCR
+        """
+        self.got_model_path = got_model_path
+        self.yolo_model_path = yolo_model_path
+        self.use_gpu = use_gpu
+        self.paddle_lang = paddle_lang
+
+        self.layout_analyzer = None
+        self.paddle_ocr = None
+        self.got_model = None
+        self.got_tokenizer = None
+
+        self._initialized = False
+
+    def initialize(self) -> None:
+        """Initialize all models (lazy loading)"""
+        if self._initialized:
+            return
+
+        logger.info("Initializing OCR Pipeline...")
+
+        # 1. Layout Analyzer
+        logger.info("Loading Layout Analyzer (YOLO)...")
+        self.layout_analyzer = LayoutAnalyzer(
+            model_path=self.yolo_model_path,
+            use_gpu=self.use_gpu
+        )
+
+        # 2. PaddleOCR
+        if PaddleOCR is not None:
+            logger.info("Loading PaddleOCR...")
+            self.paddle_ocr = PaddleOCR(
+                lang=self.paddle_lang,
+                use_angle_cls=True,
+                show_log=False,
+                use_gpu=self.use_gpu
+            )
         else:
-            raise ImportError("LayoutAnalyzer 클래스를 불러올 수 없습니다.")
-        
-        # 2. PaddleOCR 로드 (한글 텍스트용)
-        # GPU 사용 시 use_gpu=True, CPU면 False
-        print("Loading PaddleOCR...")
-        self.paddle = PaddleOCR(lang='korean', use_angle_cls=True, show_log=False, use_gpu=True)
-        
-        # 3. GOT-OCR 로드 (표 인식용)
-        print("Loading GOT-OCR model... (이 작업은 시간이 걸립니다)")
+            logger.warning("PaddleOCR not available")
+
+        # 3. GOT-OCR
+        if AutoModelForCausalLM is not None and AutoTokenizer is not None:
+            logger.info("Loading GOT-OCR model...")
+            try:
+                self._load_got_model()
+            except Exception as e:
+                logger.error(f"Failed to load GOT-OCR: {e}")
+                self.got_model = None
+        else:
+            logger.warning("GOT-OCR dependencies not available")
+
+        self._initialized = True
+        logger.info("OCR Pipeline initialized successfully")
+
+    def _load_got_model(self) -> None:
+        """Load GOT-OCR model with proper configuration"""
+        model_path = Path(self.got_model_path)
+
+        if not model_path.exists():
+            logger.warning(f"GOT model path not found: {model_path}")
+            return
+
+        self.got_tokenizer = AutoTokenizer.from_pretrained(
+            str(model_path),
+            trust_remote_code=True
+        )
+
+        device_map = 'cuda' if self.use_gpu and torch.cuda.is_available() else 'cpu'
+
+        self.got_model = AutoModelForCausalLM.from_pretrained(
+            str(model_path),
+            trust_remote_code=True,
+            low_cpu_mem_usage=True,
+            device_map=device_map,
+            use_safetensors=True,
+            torch_dtype=torch.bfloat16 if device_map == 'cuda' else torch.float32
+        )
+
+        if device_map == 'cuda':
+            self.got_model = self.got_model.eval().cuda()
+        else:
+            self.got_model = self.got_model.eval()
+
+        logger.info(f"GOT-OCR loaded on {device_map}")
+
+    def _process_table(self, table_image: np.ndarray) -> str:
+        """
+        Process table image with GOT-OCR.
+
+        Args:
+            table_image: BGR image of table region
+
+        Returns:
+            Markdown formatted table text
+        """
+        if self.got_model is None or self.got_tokenizer is None:
+            return "[표 인식 불가: GOT-OCR 미로드]"
+
+        # Save to temp file (GOT-OCR requires file path)
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+            temp_path = f.name
+            cv2.imwrite(temp_path, table_image)
+
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(got_model_path, trust_remote_code=True)
-            self.got_model = AutoModelForCausalLM.from_pretrained(
-                got_model_path, 
-                trust_remote_code=True, 
-                low_cpu_mem_usage=True,
-                device_map='cuda', # GPU 필수 권장
-                use_safetensors=True
-            ).eval().cuda()
+            result = self.got_model.chat(
+                self.got_tokenizer,
+                temp_path,
+                ocr_type='format'
+            )
+            return result
         except Exception as e:
-            print(f"[Critical] GOT-OCR Load Failed: {e}")
+            logger.error(f"GOT-OCR error: {e}")
+            return "[표 인식 중 오류 발생]"
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    def _process_text(
+        self,
+        text_image: np.ndarray
+    ) -> Tuple[List[TextSegment], float]:
+        """
+        Process text image with PaddleOCR.
+
+        Args:
+            text_image: BGR image with text (tables removed)
+
+        Returns:
+            Tuple of (parsed segments, average confidence)
+        """
+        if self.paddle_ocr is None:
+            return [], 0.0
+
+        try:
+            results = self.paddle_ocr.ocr(text_image, cls=True)
+
+            if not results or not results[0]:
+                return [], 0.0
+
+            # Parse with legal text parser
+            gray = cv2.cvtColor(text_image, cv2.COLOR_BGR2GRAY)
+            parser = LegalTextParser(gray)
+            segments = parser.parse_segments(results[0])
+
+            # Calculate average confidence
+            confidences = []
+            for line in results[0]:
+                if len(line[1]) > 1:
+                    confidences.append(line[1][1])
+
+            avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
+
+            return segments, avg_conf
+
+        except Exception as e:
+            logger.error(f"PaddleOCR error: {e}")
+            return [], 0.0
+
+    def _segments_to_markdown(self, segments: List[TextSegment]) -> str:
+        """
+        Convert segments to markdown format.
+
+        Args:
+            segments: List of text/table segments
+
+        Returns:
+            Markdown formatted string
+        """
+        md_lines = []
+
+        for seg in segments:
+            if seg.category == 'table':
+                md_lines.append(f"\n{seg.text}\n")
+            else:
+                # Build prefix
+                prefix = ""
+
+                # Heading tags
+                if seg.tag == "h1":
+                    prefix = "# "
+                elif seg.tag == "h2":
+                    prefix = "## "
+
+                # Indentation
+                if seg.is_indented:
+                    prefix = "> " + prefix
+
+                # Bold formatting
+                text = seg.text
+                if seg.is_bold:
+                    text = f"**{text}**"
+
+                md_lines.append(f"{prefix}{text}")
+
+        return "\n\n".join(md_lines)
+
+    def process_image(
+        self,
+        image_input: Union[str, np.ndarray, Path],
+        page_number: int = 1
+    ) -> OCRResult:
+        """
+        Process a single image through the OCR pipeline.
+
+        Args:
+            image_input: Image path or BGR image array
+            page_number: Page number for tracking
+
+        Returns:
+            OCRResult with all extracted content
+        """
+        import time
+        start_time = time.time()
+
+        # Ensure initialized
+        self.initialize()
+
+        # Load image if path
+        if isinstance(image_input, (str, Path)):
+            image = cv2.imread(str(image_input))
+            if image is None:
+                raise ValueError(f"Failed to load image: {image_input}")
+        else:
+            image = image_input.copy()
+
+        # Step 1: Layout analysis
+        logger.debug(f"Page {page_number}: Analyzing layout...")
+        tables, text_image = self.layout_analyzer.split_content(image)
+
+        # Step 2: Process text
+        logger.debug(f"Page {page_number}: Processing text...")
+        text_segments, text_conf = self._process_text(text_image)
+
+        # Step 3: Process tables
+        logger.debug(f"Page {page_number}: Processing {len(tables)} tables...")
+        table_segments = []
+        for table in tables:
+            table_text = self._process_table(table.image)
+            table_segments.append(TextSegment(
+                category="table",
+                y_pos=table.box[1],
+                text=table_text
+            ))
+
+        # Step 4: Merge and sort by Y position
+        all_segments = text_segments + table_segments
+        all_segments.sort(key=lambda x: x.y_pos)
+
+        # Step 5: Generate markdown
+        markdown = self._segments_to_markdown(all_segments)
+
+        # Calculate processing time
+        processing_time = time.time() - start_time
+
+        logger.info(
+            f"Page {page_number} processed: "
+            f"{len(text_segments)} text blocks, {len(tables)} tables, "
+            f"{processing_time:.2f}s"
+        )
+
+        return OCRResult(
+            page_number=page_number,
+            raw_text="\n".join(s.text for s in all_segments),
+            markdown=markdown,
+            segments=all_segments,
+            tables_count=len(tables),
+            confidence=text_conf,
+            processing_time=processing_time
+        )
+
+    def process_batch(
+        self,
+        images: List[Union[str, np.ndarray, Path]],
+        start_page: int = 1
+    ) -> List[OCRResult]:
+        """
+        Process multiple images in batch.
+
+        Args:
+            images: List of image paths or arrays
+            start_page: Starting page number
+
+        Returns:
+            List of OCRResult objects
+        """
+        results = []
+
+        for i, image in enumerate(images):
+            page_num = start_page + i
+            try:
+                result = self.process_image(image, page_num)
+                results.append(result)
+            except Exception as e:
+                logger.error(f"Failed to process page {page_num}: {e}")
+                results.append(OCRResult(
+                    page_number=page_num,
+                    raw_text=f"[처리 실패: {str(e)}]",
+                    markdown=f"[처리 실패: {str(e)}]",
+                    confidence=0.0
+                ))
+
+        return results
+
+    def cleanup(self) -> None:
+        """Clean up GPU memory"""
+        if self.got_model is not None:
+            del self.got_model
             self.got_model = None
 
-    def run(self, image_path):
-        print(f"Processing Image: {image_path}")
-        
-        # Step 1: 레이아웃 분리
-        # tables: 표 이미지 리스트, text_image_bgr: 표가 지워진(흰색 칠해진) 텍스트 이미지
-        tables, text_image_bgr = self.layout_analyzer.split_content(image_path)
-        
-        # Grayscale 변환 (UltimateParser 볼드체 분석용)
-        text_image_gray = cv2.cvtColor(text_image_bgr, cv2.COLOR_BGR2GRAY)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
-        # Step 2: 텍스트 OCR (Paddle)
-        paddle_results = self.paddle.ocr(text_image_bgr, cls=True)
-        
-        # 텍스트 구조화 분석 (UltimateLegalParser)
-        text_parser = UltimateLegalParser(text_image_gray)
-        structured_texts = []
-        if paddle_results and paddle_results[0]:
-             structured_texts = text_parser.parse_text_segments(paddle_results[0])
+        logger.info("OCR Pipeline cleanup complete")
 
-        # Step 3: 표 OCR (GOT-OCR)
-        structured_tables = []
-        for tbl in tables:
-            box = tbl['box'] # [x1, y1, x2, y2]
-            y_pos = box[1]   # Y좌표 (나중에 텍스트와 순서 섞기 위해 필요)
-            
-            # GOT-OCR은 파일 경로 입력을 선호하므로 임시 저장
-            temp_tbl_path = f"temp_table_{y_pos}.png"
-            cv2.imwrite(temp_tbl_path, tbl['image'])
-            
-            res = "[표 인식 불가]"
-            if self.got_model:
-                try:
-                    # ocr_type='format' : 마크다운/HTML 형식 출력 모드
-                    res = self.got_model.chat(self.tokenizer, temp_tbl_path, ocr_type='format')
-                except Exception as e:
-                    print(f"GOT Error: {e}")
-                    res = "[표 인식 중 오류 발생]"
-            
-            structured_tables.append({
-                "category": "table",
-                "y_pos": y_pos,
-                "text": res
-            })
-            # 임시 파일 삭제
-            if os.path.exists(temp_tbl_path): os.remove(temp_tbl_path)
 
-        # Step 4: 결과 합치기 (Y좌표 기준 정렬)
-        # 텍스트와 표를 위에서 아래 순서대로 섞음
-        all_segments = structured_texts + structured_tables
-        all_segments.sort(key=lambda x: x['y_pos'])
+# Convenience function for single image processing
+def process_single_image(
+    image_path: str,
+    got_model_path: str = "./weights/GOT-OCR2_0",
+    yolo_model_path: str = "./weights/yolo_table_best.pt/yolov8n.pt"
+) -> str:
+    """
+    Convenience function to process a single image.
 
-        # Step 5: 최종 마크다운 생성
-        final_md = []
-        for seg in all_segments:
-            if seg['category'] == 'table':
-                # 표는 앞뒤로 줄바꿈 추가
-                final_md.append("\n" + seg['text'] + "\n")
-            else:
-                # 텍스트 포맷팅 적용
-                prefix = ""
-                # 헤더 태그 변환
-                if seg['tag'] == "h1": prefix = "# "
-                elif seg['tag'] == "h2": prefix = "## "
-                
-                # 들여쓰기 변환
-                if seg['is_indented']: prefix = "> " + prefix
-                
-                text = seg['text']
-                # 볼드체 변환
-                if seg['is_bold']: text = f"**{text}**"
-                
-                final_md.append(f"{prefix}{text}")
+    Args:
+        image_path: Path to image file
+        got_model_path: Path to GOT-OCR model
+        yolo_model_path: Path to YOLO model
 
-        # 문단 간격 조정을 위해 두 줄 띄우기 결합
-        return "\n\n".join(final_md)
+    Returns:
+        Markdown formatted OCR result
+    """
+    pipeline = HybridOCRPipeline(got_model_path, yolo_model_path)
+    result = pipeline.process_image(image_path)
+    return result.markdown

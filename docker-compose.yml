@@ -1,26 +1,84 @@
 version: '3.8'
 
+# ============================================
+# Legal Document OCR - Docker Compose
+# Production configuration with GPU support
+# ============================================
+
 services:
-  # 1. API 서버
+  # ===========================================
+  # Redis - Message Broker & Result Backend
+  # ===========================================
+  redis:
+    image: redis:7-alpine
+    container_name: ocr_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # API Server - FastAPI Application
+  # ===========================================
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ocr_api
+    restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
       - .:/app
-      - ./weights:/app/weights
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-    env_file: .env
+      - ./weights:/app/weights:ro
+      - ./temp_uploads:/app/temp_uploads
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - .env
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
-  # 2. Celery Worker (GPU 사용)
+  # ===========================================
+  # Celery Worker - OCR Processing (GPU)
+  # ===========================================
   worker:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ocr_worker
+    restart: unless-stopped
     volumes:
       - .:/app
-      - ./weights:/app/weights
-    # GPU 할당 설정 (NVIDIA Docker 필요)
+      - ./weights:/app/weights:ro
+      - ./temp_uploads:/app/temp_uploads
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - PYTHONUNBUFFERED=1
+      - CUDA_VISIBLE_DEVICES=0
+    env_file:
+      - .env
+    # GPU allocation (NVIDIA Docker required)
     deploy:
       resources:
         reservations:
@@ -28,13 +86,42 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    command: celery -A tasks worker --loglevel=info --concurrency=1
-    env_file: .env
+    # Single worker with concurrency 1 for GPU memory management
+    command: celery -A tasks worker --loglevel=info --concurrency=1 -n worker@%h
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ===========================================
+  # Flower - Celery Monitoring Dashboard
+  # ===========================================
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ocr_flower
+    restart: unless-stopped
+    ports:
+      - "5555:5555"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - FLOWER_BASIC_AUTH=${FLOWER_USER:-admin}:${FLOWER_PASSWORD:-admin}
+    command: celery -A tasks flower --port=5555
     depends_on:
       - redis
+      - worker
 
-  # 3. Redis (메시지 브로커)
-  redis:
-    image: redis:alpine
-    ports:
-      - "6379:6379"
+# ===========================================
+# Named Volumes
+# ===========================================
+volumes:
+  redis_data:
+    driver: local
+
+# ===========================================
+# Networks
+# ===========================================
+networks:
+  default:
+    name: ocr_network
+    driver: bridge
