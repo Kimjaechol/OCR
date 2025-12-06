@@ -1,78 +1,52 @@
 #!/usr/bin/env python3
 """
-GOT-OCR Model Download Script
-Downloads model weights from HuggingFace Hub
+GOT-OCR 모델 다운로드 스크립트
+HuggingFace에서 모델 파일을 다운로드합니다.
 """
 
+from huggingface_hub import hf_hub_download, snapshot_download
 import os
-import sys
-from pathlib import Path
 
+def download_got_ocr_model():
+    """GOT-OCR2.0 모델을 다운로드합니다."""
 
-def download_model():
-    """Download GOT-OCR model from HuggingFace"""
+    model_dir = "weights/GOT-OCR2_0"
+    os.makedirs(model_dir, exist_ok=True)
 
-    model_dir = Path("weights/GOT-OCR2_0")
-    model_file = model_dir / "model.safetensors"
-
-    # Check if already exists
-    if model_file.exists():
-        size = model_file.stat().st_size
-        if size > 1_000_000_000:  # > 1GB
-            print(f"Model already exists ({size / 1e9:.2f} GB). Skipping download.")
-            return True
-        else:
-            print("Existing file is incomplete. Re-downloading...")
-            model_file.unlink()
-
-    print("=" * 50)
-    print("GOT-OCR Model Downloader")
-    print("=" * 50)
+    print("GOT-OCR2.0 모델 다운로드 중...")
+    print("이 작업은 몇 분 정도 소요됩니다 (약 1.4GB)")
 
     try:
-        from huggingface_hub import hf_hub_download
-    except ImportError:
-        print("\nInstalling huggingface_hub...")
-        os.system(f"{sys.executable} -m pip install huggingface_hub")
-        from huggingface_hub import hf_hub_download
-
-    print("\nDownloading GOT-OCR model from HuggingFace...")
-    print("Repository: stepfun-ai/GOT-OCR2_0")
-    print("File: model.safetensors (1.4GB)")
-    print()
-
-    try:
-        # Download using huggingface_hub
-        downloaded_path = hf_hub_download(
+        # 전체 모델 다운로드
+        snapshot_download(
             repo_id="stepfun-ai/GOT-OCR2_0",
-            filename="model.safetensors",
-            local_dir=str(model_dir),
-            local_dir_use_symlinks=False
+            local_dir=model_dir,
+            local_dir_use_symlinks=False,
+            resume_download=True
         )
+        print(f"\n모델 다운로드 완료: {model_dir}")
 
-        print(f"\nDownload complete!")
-        print(f"Model saved to: {downloaded_path}")
+        # 다운로드된 파일 확인
+        files = os.listdir(model_dir)
+        print(f"다운로드된 파일: {files}")
 
-        # Verify
-        size = Path(downloaded_path).stat().st_size
-        print(f"File size: {size / 1e9:.2f} GB")
+        # safetensors 파일 확인
+        safetensors_files = [f for f in files if f.endswith('.safetensors')]
+        if safetensors_files:
+            for f in safetensors_files:
+                path = os.path.join(model_dir, f)
+                size = os.path.getsize(path) / (1024**3)
+                print(f"  - {f}: {size:.2f} GB")
 
-        if size < 1_000_000_000:
-            print("Warning: File size seems too small. Download may have failed.")
-            return False
-
-        print("\nSetup complete! You can now run the OCR service.")
         return True
 
     except Exception as e:
-        print(f"\nError downloading model: {e}")
-        print("\nManual download instructions:")
-        print("1. Visit: https://huggingface.co/stepfun-ai/GOT-OCR2_0")
-        print("2. Download 'model.safetensors'")
-        print("3. Place it in: weights/GOT-OCR2_0/")
+        print(f"다운로드 실패: {e}")
         return False
 
-
 if __name__ == "__main__":
-    success = download_model()
-    sys.exit(0 if success else 1)
+    success = download_got_ocr_model()
+    if success:
+        print("\n모델 준비 완료! OCR 서비스를 시작할 수 있습니다.")
+    else:
+        print("\n모델 다운로드에 실패했습니다. 네트워크 연결을 확인하세요.")
