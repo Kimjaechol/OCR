@@ -26,6 +26,7 @@ from tasks import (
     process_single_image_task,
     process_pdf_document_task,
     process_batch_images_task,
+    process_folder_task,
     get_task_progress
 )
 
@@ -306,6 +307,123 @@ async def upload_multiple_images(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class FolderProcessRequest(BaseModel):
+    """Request model for folder processing"""
+    folder_path: str
+    recursive: bool = True
+    apply_gemini: bool = True
+
+
+@app.post("/ocr/process-folder", response_model=TaskResponse)
+async def process_folder(request: FolderProcessRequest):
+    """
+    서버 내 폴더의 모든 PDF/이미지 파일 OCR 처리
+
+    - folder_path: 처리할 폴더 경로
+    - recursive: 하위 폴더 포함 여부 (기본: True)
+    - 지원 형식: PDF, PNG, JPG, JPEG, TIFF, BMP, WEBP
+    """
+    try:
+        folder_path = request.folder_path
+
+        if not os.path.exists(folder_path):
+            raise HTTPException(
+                status_code=400,
+                detail=f"폴더를 찾을 수 없습니다: {folder_path}"
+            )
+
+        if not os.path.isdir(folder_path):
+            raise HTTPException(
+                status_code=400,
+                detail=f"유효한 폴더 경로가 아닙니다: {folder_path}"
+            )
+
+        # Scan folder for estimation
+        from batch_processor import BatchProcessor
+        processor = BatchProcessor()
+        scan_result = processor.scan_folder(folder_path, request.recursive)
+
+        if scan_result.total_files == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="처리할 파일이 없습니다. (PDF, 이미지 파일 없음)"
+            )
+
+        logger.info(
+            f"Folder processing requested: {folder_path}, "
+            f"{scan_result.total_files} files, ~{scan_result.estimated_pages} pages"
+        )
+
+        # Queue folder processing task
+        task = process_folder_task.delay(
+            folder_path,
+            recursive=request.recursive,
+            apply_gemini=request.apply_gemini
+        )
+
+        estimated_price = scan_result.estimated_pages * settings.price_per_page
+
+        return TaskResponse(
+            task_id=task.id,
+            status="processing",
+            message=f"폴더 처리가 시작되었습니다. "
+                    f"PDF {len(scan_result.pdf_files)}개, "
+                    f"이미지 {len(scan_result.image_files)}개, "
+                    f"예상 {scan_result.estimated_pages}페이지",
+            estimated_pages=scan_result.estimated_pages,
+            estimated_price_krw=estimated_price
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Folder processing error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ocr/scan-folder")
+async def scan_folder(
+    folder_path: str = Query(..., description="스캔할 폴더 경로"),
+    recursive: bool = Query(True, description="하위 폴더 포함 여부")
+):
+    """
+    폴더 내 처리 가능한 파일 목록 조회 (처리 전 확인용)
+
+    - 처리 예상 시간 및 비용 확인
+    - PDF/이미지 파일 수 확인
+    """
+    try:
+        if not os.path.exists(folder_path):
+            raise HTTPException(
+                status_code=400,
+                detail=f"폴더를 찾을 수 없습니다: {folder_path}"
+            )
+
+        from batch_processor import BatchProcessor
+        processor = BatchProcessor()
+        scan_result = processor.scan_folder(folder_path, recursive)
+
+        return {
+            "folder_path": scan_result.folder_path,
+            "pdf_files": len(scan_result.pdf_files),
+            "image_files": len(scan_result.image_files),
+            "total_files": scan_result.total_files,
+            "total_size_mb": round(scan_result.total_size_mb, 2),
+            "estimated_pages": scan_result.estimated_pages,
+            "estimated_price_krw": scan_result.estimated_pages * settings.price_per_page,
+            "file_list": {
+                "pdfs": scan_result.pdf_files[:20],  # First 20 only
+                "images": scan_result.image_files[:20]
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Folder scan error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/ocr/status/{task_id}", response_model=ProgressResponse)
 async def get_status(task_id: str):
     """
@@ -399,6 +517,56 @@ async def get_result(
         raise
     except Exception as e:
         logger.error(f"Result fetch error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ocr/download/{task_id}")
+async def download_result(
+    task_id: str,
+    format: str = Query("markdown", description="다운로드 형식: markdown, json")
+):
+    """
+    완료된 작업 결과를 파일로 다운로드
+
+    - format=markdown: .md 파일 다운로드
+    - format=json: .json 파일 다운로드
+    """
+    try:
+        progress_info = get_task_progress(task_id)
+
+        if progress_info.get('state') != 'completed':
+            raise HTTPException(
+                status_code=400,
+                detail=f"작업이 아직 완료되지 않았습니다. 현재 상태: {progress_info.get('state')}"
+            )
+
+        result = progress_info.get('result', {})
+
+        if format == "markdown":
+            content = result.get('markdown', '')
+            filename = f"ocr_result_{task_id[:8]}.md"
+            media_type = "text/markdown"
+        else:
+            import json as json_module
+            content = json_module.dumps(result, ensure_ascii=False, indent=2)
+            filename = f"ocr_result_{task_id[:8]}.json"
+            media_type = "application/json"
+
+        # Create temp file for download
+        temp_path = os.path.join(settings.output_dir, filename)
+        with open(temp_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        return FileResponse(
+            path=temp_path,
+            filename=filename,
+            media_type=media_type
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Download error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

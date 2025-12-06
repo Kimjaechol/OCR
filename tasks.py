@@ -444,6 +444,93 @@ def process_batch_images_task(
         }
 
 
+@celery_app.task(bind=True, name='tasks.process_folder')
+def process_folder_task(
+    self,
+    folder_path: str,
+    recursive: bool = True,
+    apply_gemini: bool = True
+) -> Dict[str, Any]:
+    """
+    Process all files in a folder.
+
+    Args:
+        folder_path: Path to folder
+        recursive: Whether to process subfolders
+        apply_gemini: Whether to apply Gemini correction
+
+    Returns:
+        Dict with processing results for all files
+    """
+    from batch_processor import BatchProcessor
+
+    start_time = time.time()
+
+    try:
+        self.update_state(
+            state='PROCESSING',
+            meta={
+                'progress': 0,
+                'status': '폴더 스캔 중...'
+            }
+        )
+
+        processor = BatchProcessor(use_gemini=apply_gemini)
+
+        # Scan folder
+        scan_result = processor.scan_folder(folder_path, recursive)
+        total_files = scan_result.total_files
+
+        if total_files == 0:
+            return {
+                'status': 'completed',
+                'message': '처리할 파일이 없습니다.',
+                'files': [],
+                'processing_time': time.time() - start_time
+            }
+
+        def progress_callback(current, total, filename, status):
+            progress = int((current / total) * 100)
+            self.update_state(
+                state='PROCESSING',
+                meta={
+                    'progress': progress,
+                    'current_file': current,
+                    'total_files': total,
+                    'filename': filename,
+                    'status': f'{filename} {status}...'
+                }
+            )
+
+        # Process folder
+        result = processor.process_folder(
+            folder_path,
+            recursive=recursive,
+            progress_callback=progress_callback
+        )
+
+        processor.cleanup()
+
+        return {
+            'status': 'completed',
+            'total_files': result.total_files,
+            'processed_files': result.processed_files,
+            'failed_files': result.failed_files,
+            'total_pages': result.total_pages,
+            'output_dir': result.output_dir,
+            'files': result.files,
+            'processing_time': time.time() - start_time,
+            'price_krw': result.total_pages * settings.price_per_page
+        }
+
+    except Exception as e:
+        logger.error(f"Folder processing error: {e}")
+        return {
+            'status': 'failed',
+            'error': str(e)
+        }
+
+
 # ============================================
 # Task Status Helper
 # ============================================
