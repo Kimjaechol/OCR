@@ -1,0 +1,65 @@
+{
+  "name": "law-ocr",
+  "version": "1.0.0",
+  "description": "Legal Document OCR Desktop App - 법률 문서 OCR 데스크탑 앱",
+  "main": "src/main/main.js",
+  "author": "LawOCR Team",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "cross-env NODE_ENV=development electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "electron-store": "^8.1.0",
+    "form-data": "^4.0.0",
+    "pdf-lib": "^1.17.1",
+    "pdf2pic": "^3.1.1",
+    "sharp": "^0.33.1",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.lawocr.app",
+    "productName": "LawOCR",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "src/assets/icon.ico"
+    },
+    "mac": {
+      "target": ["dmg"],
+      "icon": "src/assets/icon.icns"
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "icon": "src/assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerLanguages": ["ko", "en"],
+      "language": "1042"
+    }
+  }
+}
