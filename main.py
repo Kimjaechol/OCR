@@ -155,6 +155,7 @@ async def health_check():
 
 
 @app.post("/ocr/upload", response_model=TaskResponse)
+@app.post("/ocr/analyze", response_model=TaskResponse)  # Alias for Electron client
 async def upload_document(
     file: UploadFile = File(...),
     start_page: int = Query(1, ge=1, description="시작 페이지 (PDF만)"),
@@ -167,6 +168,7 @@ async def upload_document(
     - PDF 파일: 최대 5000+ 페이지 지원
     - 이미지 파일: PNG, JPG, JPEG, TIFF 등 지원
     - 처리 비용: 페이지당 50원
+    - /ocr/analyze는 Electron 데스크탑 클라이언트 호환용 alias
     """
     try:
         # Validate file type
@@ -424,28 +426,38 @@ async def scan_folder(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/ocr/status/{task_id}", response_model=ProgressResponse)
+@app.get("/ocr/status/{task_id}")
 async def get_status(task_id: str):
     """
     작업 상태 및 진행률 조회
 
     - progress: 0-100 진행률
     - state: pending, processing, completed, failed
-    - result: 완료 시 OCR 결과 포함
+    - status: state와 동일 (Electron 클라이언트 호환용)
+    - result: 완료 시 마크다운 텍스트 또는 전체 결과
     """
     try:
         progress_info = get_task_progress(task_id)
+        state = progress_info.get('state', 'unknown')
+        result_data = progress_info.get('result', {})
 
-        return ProgressResponse(
-            task_id=task_id,
-            state=progress_info.get('state', 'unknown'),
-            progress=progress_info.get('progress', 0),
-            current_page=progress_info.get('current_page'),
-            total_pages=progress_info.get('total_pages'),
-            status=progress_info.get('status', ''),
-            result=progress_info.get('result'),
-            error=progress_info.get('error')
-        )
+        # Extract markdown for simple result (Electron client compatibility)
+        simple_result = None
+        if state == 'completed' and result_data:
+            simple_result = result_data.get('markdown', '')
+
+        return {
+            "task_id": task_id,
+            "state": state,
+            "status": state,  # Electron 클라이언트 호환 (status == state)
+            "progress": progress_info.get('progress', 0),
+            "current_page": progress_info.get('current_page'),
+            "total_pages": progress_info.get('total_pages'),
+            "status_message": progress_info.get('status', ''),
+            "result": simple_result,  # 마크다운 텍스트 직접 반환
+            "full_result": result_data,  # 전체 결과 (page별 상세 정보)
+            "error": progress_info.get('error')
+        }
 
     except Exception as e:
         logger.error(f"Status check error: {e}")

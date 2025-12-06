@@ -140,24 +140,29 @@ class RunPodClient {
 
   /**
    * Poll for task completion
+   * Compatible with both 'state' and 'status' fields from server
    */
-  async waitForCompletion(taskId, onProgress = null, pollInterval = 1000) {
+  async waitForCompletion(taskId, onProgress = null, pollInterval = 2000) {
     while (true) {
-      const status = await this.getTaskStatus(taskId);
+      const statusRes = await this.getTaskStatus(taskId);
 
       if (onProgress) {
-        onProgress(status);
+        onProgress(statusRes);
       }
 
-      if (status.state === 'completed') {
-        return status.result;
+      // Check both 'state' and 'status' for compatibility
+      const taskState = statusRes.state || statusRes.status;
+
+      if (taskState === 'completed' || taskState === 'SUCCESS') {
+        // Return markdown result directly
+        return statusRes.result || statusRes.full_result?.markdown || '';
       }
 
-      if (status.state === 'failed') {
-        throw new Error(status.error || '처리 실패');
+      if (taskState === 'failed' || taskState === 'FAILURE') {
+        throw new Error(statusRes.error || '처리 실패');
       }
 
-      // Wait before next poll
+      // Wait before next poll (2 seconds like user's code)
       await new Promise(resolve => setTimeout(resolve, pollInterval));
     }
   }
@@ -170,12 +175,12 @@ class RunPodClient {
     const uploadResult = await this.uploadFile(chunkPath, options);
     const taskId = uploadResult.task_id;
 
-    // Wait for completion
-    const result = await this.waitForCompletion(taskId, onProgress);
+    // Wait for completion - result is now markdown string
+    const markdown = await this.waitForCompletion(taskId, onProgress);
 
     return {
       taskId,
-      ...result
+      markdown: typeof markdown === 'string' ? markdown : (markdown?.markdown || '')
     };
   }
 }

@@ -253,11 +253,12 @@ class ParallelProcessor {
 
       // Combine markdown from all chunks
       const combinedMarkdown = fileResult.chunks
-        .filter(c => c.success && c.result && c.result.markdown)
+        .filter(c => c.success && (c.result?.markdown || c.markdown))
         .map((c, idx) => {
           // Add page range header
           const header = `<!-- 페이지 ${c.startPage}-${c.endPage} -->\n`;
-          return header + c.result.markdown;
+          const markdown = c.result?.markdown || c.markdown || '';
+          return header + markdown;
         })
         .join('\n\n---\n\n');
 
