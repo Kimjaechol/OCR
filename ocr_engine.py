@@ -31,7 +31,8 @@ except ImportError:
     AutoModelForCausalLM = None
     AutoTokenizer = None
 
-from layout_analyzer import LayoutAnalyzer, DetectedRegion
+from layout_analyzer import LayoutAnalyzer, DetectedRegion, TextFormatInfo
+from html_generator import HTMLGenerator, StyledText, TextStyle, DocumentFormatter
 
 
 @dataclass
@@ -51,6 +52,7 @@ class OCRResult:
     page_number: int
     raw_text: str
     markdown: str
+    html: str = ""  # HTML formatted output
     segments: List[TextSegment] = field(default_factory=list)
     tables_count: int = 0
     confidence: float = 0.0
@@ -486,6 +488,63 @@ class HybridOCRPipeline:
 
         return "\n\n".join(md_lines)
 
+    def _segments_to_html(
+        self,
+        segments: List[TextSegment],
+        page_number: int = 1
+    ) -> str:
+        """
+        Convert segments to HTML format with proper styling.
+
+        Args:
+            segments: List of text/table segments
+            page_number: Page number for title
+
+        Returns:
+            HTML formatted string
+        """
+        html_generator = HTMLGenerator()
+
+        # Convert TextSegment to StyledText
+        styled_segments = []
+
+        for seg in segments:
+            if seg.category == 'table':
+                # Table: convert markdown table to HTML
+                html_table = html_generator.markdown_table_to_html(seg.text)
+                styled_segments.append(StyledText(
+                    text=html_table,
+                    style=TextStyle.TABLE,
+                    y_pos=seg.y_pos,
+                    is_bold=False
+                ))
+            else:
+                # Determine style
+                if seg.tag == "h1":
+                    style = TextStyle.HEADING1
+                elif seg.tag == "h2":
+                    style = TextStyle.HEADING2
+                elif seg.is_bold:
+                    style = TextStyle.BOLD
+                else:
+                    style = TextStyle.NORMAL
+
+                styled_segments.append(StyledText(
+                    text=seg.text,
+                    style=style,
+                    y_pos=seg.y_pos,
+                    is_bold=seg.is_bold
+                ))
+
+        # Generate HTML
+        html = html_generator.generate_html(
+            segments=styled_segments,
+            title=f"OCR Document - Page {page_number}",
+            include_css=True
+        )
+
+        return html
+
     def process_image(
         self,
         image_input: Union[str, np.ndarray, Path],
@@ -538,7 +597,10 @@ class HybridOCRPipeline:
         all_segments = text_segments + table_segments
         all_segments.sort(key=lambda x: x.y_pos)
 
-        # Step 5: Generate markdown
+        # Step 5: Generate HTML first (preserves formatting better)
+        html = self._segments_to_html(all_segments, page_number)
+
+        # Step 6: Generate Markdown from HTML (or direct conversion)
         markdown = self._segments_to_markdown(all_segments)
 
         # Calculate processing time
@@ -554,6 +616,7 @@ class HybridOCRPipeline:
             page_number=page_number,
             raw_text="\n".join(s.text for s in all_segments),
             markdown=markdown,
+            html=html,
             segments=all_segments,
             tables_count=len(tables),
             confidence=text_conf,

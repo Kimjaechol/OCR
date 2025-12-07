@@ -6,6 +6,7 @@ Supports 5000+ page PDF processing with Gemini LLM correction
 """
 
 import os
+import re
 import time
 from pathlib import Path
 from typing import Dict, Optional, List, Any
@@ -182,6 +183,7 @@ def process_single_image_task(
         return {
             'status': 'completed',
             'markdown': final_markdown,
+            'html': result.html,
             'raw_text': result.raw_text,
             'tables_count': result.tables_count,
             'confidence': result.confidence,
@@ -254,6 +256,7 @@ def process_pdf_document_task(
         # Process pages
         all_results = []
         combined_markdown = []
+        combined_html = []
 
         for page_image in pdf_processor.iter_pages(pdf_path, start_page, end_page):
             page_num = page_image.page_number
@@ -278,6 +281,7 @@ def process_pdf_document_task(
                 all_results.append({
                     'page': page_num,
                     'markdown': result.markdown,
+                    'html': result.html,
                     'tables_count': result.tables_count,
                     'confidence': result.confidence
                 })
@@ -287,19 +291,56 @@ def process_pdf_document_task(
                     f"\n\n---\n\n## 페이지 {page_num}\n\n{result.markdown}"
                 )
 
+                # Extract body content from HTML for combining
+                body_match = re.search(r'<body>(.*?)</body>', result.html, re.DOTALL)
+                if body_match:
+                    combined_html.append(
+                        f'<div class="page-break"><div class="page-header">페이지 {page_num}</div>{body_match.group(1)}</div>'
+                    )
+
             except Exception as e:
                 logger.error(f"Failed to process page {page_num}: {e}")
                 all_results.append({
                     'page': page_num,
                     'markdown': f'[처리 실패: {str(e)}]',
+                    'html': f'<p class="error">처리 실패: {str(e)}</p>',
                     'error': str(e)
                 })
                 combined_markdown.append(
                     f"\n\n---\n\n## 페이지 {page_num}\n\n[처리 실패: {str(e)}]"
                 )
+                combined_html.append(
+                    f'<div class="page-break"><div class="page-header">페이지 {page_num}</div><p class="error">처리 실패: {str(e)}</p></div>'
+                )
 
         # Combine all markdown
         full_markdown = "\n".join(combined_markdown)
+
+        # Combine all HTML with wrapper
+        full_html = f'''<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OCR Document</title>
+<style>
+body {{ font-family: 'Malgun Gothic', sans-serif; line-height: 1.8; max-width: 900px; margin: 0 auto; padding: 40px 20px; }}
+h1 {{ font-size: 24px; font-weight: bold; margin: 30px 0 15px 0; border-bottom: 2px solid #333; padding-bottom: 10px; }}
+h2 {{ font-size: 20px; font-weight: bold; margin: 25px 0 12px 0; }}
+h3 {{ font-size: 17px; font-weight: bold; margin: 20px 0 10px 0; }}
+p {{ margin: 10px 0; text-align: justify; }}
+table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
+th, td {{ border: 1px solid #ccc; padding: 10px 12px; text-align: left; }}
+th {{ background-color: #f5f5f5; font-weight: bold; }}
+.page-break {{ page-break-after: always; border-top: 1px dashed #ccc; margin: 40px 0; padding-top: 20px; }}
+.page-header {{ color: #888; font-size: 12px; margin-bottom: 20px; }}
+.error {{ color: #c00; }}
+</style>
+</head>
+<body>
+{"".join(combined_html)}
+</body>
+</html>'''
 
         # Apply Gemini correction to combined result
         if apply_gemini and len(full_markdown) < 30000:  # Limit for API
@@ -329,6 +370,7 @@ def process_pdf_document_task(
         return {
             'status': 'completed',
             'markdown': full_markdown,
+            'html': full_html,
             'pages': all_results,
             'page_count': pages_to_process,
             'total_tables': total_tables,

@@ -48,6 +48,9 @@ pydantic-settings>=2.1.0
 loguru>=0.7.2
 tenacity>=8.2.3
 
+# HTML/Markdown Conversion
+markdownify>=0.11.6
+
 # GOT-OCR Dependencies
 verovio>=4.0.0
 

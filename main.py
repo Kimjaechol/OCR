@@ -512,32 +512,14 @@ async def get_result(
             })
 
         elif format == "html":
-            # Convert markdown to HTML
-            markdown_text = result.get('markdown', '')
-            # Simple markdown to HTML conversion
-            html_content = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <title>OCR 결과</title>
-                <style>
-                    body {{ font-family: 'Malgun Gothic', sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }}
-                    h1, h2 {{ color: #333; }}
-                    table {{ border-collapse: collapse; width: 100%; }}
-                    th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-                    blockquote {{ border-left: 3px solid #ccc; padding-left: 10px; color: #666; }}
-                    pre {{ background: #f4f4f4; padding: 10px; overflow-x: auto; }}
-                </style>
-            </head>
-            <body>
-                <h1>OCR 결과</h1>
-                <p>총 {result.get('page_count', 0)}페이지 | 처리 시간: {result.get('processing_time', 0):.2f}초</p>
-                <hr>
-                <pre>{markdown_text}</pre>
-            </body>
-            </html>
-            """
+            # Return stored HTML (with proper formatting preserved)
+            html_content = result.get('html', '')
+            if not html_content:
+                # Fallback: simple conversion if HTML not available
+                markdown_text = result.get('markdown', '')
+                html_content = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>OCR 결과</title></head>
+<body><pre>{markdown_text}</pre></body></html>"""
             return HTMLResponse(content=html_content)
 
         else:
@@ -553,12 +535,13 @@ async def get_result(
 @app.get("/ocr/download/{task_id}")
 async def download_result(
     task_id: str,
-    format: str = Query("markdown", description="다운로드 형식: markdown, json")
+    format: str = Query("markdown", description="다운로드 형식: markdown, html, json")
 ):
     """
     완료된 작업 결과를 파일로 다운로드
 
     - format=markdown: .md 파일 다운로드
+    - format=html: .html 파일 다운로드
     - format=json: .json 파일 다운로드
     """
     try:
@@ -576,6 +559,10 @@ async def download_result(
             content = result.get('markdown', '')
             filename = f"ocr_result_{task_id[:8]}.md"
             media_type = "text/markdown"
+        elif format == "html":
+            content = result.get('html', '')
+            filename = f"ocr_result_{task_id[:8]}.html"
+            media_type = "text/html"
         else:
             import json as json_module
             content = json_module.dumps(result, ensure_ascii=False, indent=2)

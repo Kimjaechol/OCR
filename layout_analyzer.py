@@ -28,6 +28,16 @@ class DetectedRegion:
     image: Optional[np.ndarray] = None
 
 
+@dataclass
+class TextFormatInfo:
+    """Text formatting information detected from image analysis"""
+    bbox: Tuple[int, int, int, int]  # (x1, y1, x2, y2)
+    estimated_font_size: float
+    is_bold: bool
+    is_heading: bool
+    stroke_width: float = 1.0
+
+
 class LayoutAnalyzer:
     """
     Layout analyzer for legal documents using YOLOv8 and heuristic methods.
@@ -332,6 +342,143 @@ class LayoutAnalyzer:
         )
 
         return all_tables, image
+
+    def detect_text_formatting(
+        self,
+        image: np.ndarray,
+        text_bboxes: List[Tuple[int, int, int, int]]
+    ) -> List[TextFormatInfo]:
+        """
+        Detect text formatting (bold, heading) using OpenCV analysis.
+
+        Algorithm:
+        1. For each text bbox, calculate stroke width using distance transform
+        2. Compare stroke width to median to detect bold
+        3. Use bbox height to estimate font size and detect headings
+
+        Args:
+            image: BGR image array
+            text_bboxes: List of text bounding boxes [(x1,y1,x2,y2), ...]
+
+        Returns:
+            List of TextFormatInfo for each bbox
+        """
+        format_infos = []
+
+        if len(text_bboxes) == 0:
+            return format_infos
+
+        # Convert to grayscale
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image
+
+        # Calculate stroke widths for all bboxes
+        stroke_widths = []
+        heights = []
+
+        for bbox in text_bboxes:
+            x1, y1, x2, y2 = bbox
+            x1, y1 = max(0, x1), max(0, y1)
+            x2 = min(gray.shape[1], x2)
+            y2 = min(gray.shape[0], y2)
+
+            if x2 <= x1 or y2 <= y1:
+                stroke_widths.append(1.0)
+                heights.append(20)
+                continue
+
+            roi = gray[y1:y2, x1:x2]
+            height = y2 - y1
+            heights.append(height)
+
+            # Calculate stroke width using distance transform
+            stroke_width = self._calculate_stroke_width(roi)
+            stroke_widths.append(stroke_width)
+
+        # Calculate medians for comparison
+        median_stroke = np.median(stroke_widths) if stroke_widths else 1.0
+        median_height = np.median(heights) if heights else 20
+
+        # Bold threshold: stroke width > 1.3x median
+        bold_threshold = median_stroke * 1.3
+
+        # Heading threshold: height > 1.2x median
+        heading_threshold = median_height * 1.2
+
+        for i, bbox in enumerate(text_bboxes):
+            stroke_width = stroke_widths[i]
+            height = heights[i]
+
+            is_bold = stroke_width > bold_threshold
+            is_heading = height > heading_threshold
+
+            format_infos.append(TextFormatInfo(
+                bbox=bbox,
+                estimated_font_size=height * 0.75,  # Approximate pt size
+                is_bold=is_bold,
+                is_heading=is_heading,
+                stroke_width=stroke_width
+            ))
+
+        return format_infos
+
+    def _calculate_stroke_width(self, roi: np.ndarray) -> float:
+        """
+        Calculate average stroke width of text in ROI using distance transform.
+
+        Args:
+            roi: Grayscale image ROI
+
+        Returns:
+            Estimated stroke width in pixels
+        """
+        try:
+            if roi.size == 0:
+                return 1.0
+
+            # Binary threshold (text = white on black background for distance transform)
+            _, binary = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+            # Distance transform
+            dist = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
+
+            # Get skeleton for stroke width measurement
+            skeleton = cv2.ximgproc.thinning(binary) if hasattr(cv2, 'ximgproc') else self._simple_skeleton(binary)
+
+            # Measure stroke width at skeleton points
+            skeleton_points = np.where(skeleton > 0)
+
+            if len(skeleton_points[0]) == 0:
+                # Fallback: use mean of non-zero distance values
+                non_zero = dist[dist > 0]
+                return float(np.mean(non_zero)) * 2 if len(non_zero) > 0 else 1.0
+
+            stroke_widths = dist[skeleton_points] * 2  # Diameter = 2 * radius
+            return float(np.mean(stroke_widths)) if len(stroke_widths) > 0 else 1.0
+
+        except Exception as e:
+            logger.debug(f"Stroke width calculation error: {e}")
+            return 1.0
+
+    def _simple_skeleton(self, binary: np.ndarray) -> np.ndarray:
+        """Simple skeletonization fallback when cv2.ximgproc is not available"""
+        skeleton = np.zeros_like(binary)
+        element = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
+        temp = binary.copy()
+
+        while True:
+            eroded = cv2.erode(temp, element)
+            opened = cv2.dilate(eroded, element)
+            subset = cv2.subtract(temp, opened)
+            skeleton = cv2.bitwise_or(skeleton, subset)
+            temp = eroded.copy()
+
+            if cv2.countNonZero(temp) == 0:
+                break
+
+        return skeleton
 
     def analyze(
         self,
