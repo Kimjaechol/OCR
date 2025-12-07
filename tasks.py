@@ -13,7 +13,7 @@ from typing import Dict, Optional, List, Any
 from datetime import datetime
 from loguru import logger
 
-from celery import Celery, states
+from celery import Celery
 from dotenv import load_dotenv
 
 try:
@@ -591,8 +591,6 @@ def process_local_file_task(
         Dict with processing results and output file paths
     """
     from batch_processor import BatchProcessor
-    from pathlib import Path
-    import os
 
     start_time = time.time()
 

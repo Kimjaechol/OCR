@@ -7,7 +7,6 @@ Supports PDF (5000+ pages), images, and batch processing
 
 import os
 import uuid
-import shutil
 import aiofiles
 from pathlib import Path
 from typing import Optional, List

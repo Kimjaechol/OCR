@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileText, Loader2, Check, FileCheck, AlertCircle, Download, Eye, FolderOpen } from "lucide-react";
+import { Upload, FileText, Loader2, Check, AlertCircle, Download, Eye, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 
@@ -164,9 +164,8 @@ export function UploadZone() {
       'image/bmp',
       'image/webp'
     ];
-    return validTypes.includes(file.type) ||
-           file.name.toLowerCase().endsWith('.pdf') ||
-           file.name.toLowerCase().match(/\.(png|jpg|jpeg|tiff|bmp|webp)$/);
+    const validExtensions = /\.(pdf|png|jpg|jpeg|tiff|bmp|webp)$/i;
+    return validTypes.includes(file.type) || validExtensions.test(file.name);
   };
 
   const handleButtonClick = () => {

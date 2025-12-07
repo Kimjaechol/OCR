@@ -11,6 +11,7 @@ import re
 import statistics
 import os
 import tempfile
+import time
 from typing import List, Dict, Optional, Tuple, Union
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -836,7 +837,6 @@ class HybridOCRPipeline:
         Returns:
             OCRResult with all extracted content
         """
-        import time
         start_time = time.time()
 
         # Ensure initialized

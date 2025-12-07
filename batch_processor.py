@@ -7,8 +7,8 @@ Supports recursive folder scanning and parallel processing
 
 import os
 import json
+import re
 import time
-import shutil
 from pathlib import Path
 from typing import List, Dict, Optional, Callable, Any
 from dataclasses import dataclass, field
@@ -254,11 +254,6 @@ class BatchProcessor:
         Returns:
             Complete HTML document string
         """
-        from html_generator import HTMLGenerator
-
-        # CSS styles from HTMLGenerator
-        html_gen = HTMLGenerator()
-
         # Build HTML content from pages
         page_contents = []
         for result in all_results:
@@ -272,7 +267,6 @@ class BatchProcessor:
 
             # Extract body content if full HTML
             if '<body>' in html_content:
-                import re
                 body_match = re.search(r'<body>(.*?)</body>', html_content, re.DOTALL)
                 if body_match:
                     html_content = body_match.group(1)

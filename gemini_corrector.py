@@ -624,7 +624,7 @@ CSS 클래스 참조:
         except Exception as e:
             logger.error(f"HTML verification error: {e}")
 
-        return {"error": str(e) if 'e' in dir() else "Unknown error"}
+        return {"error": "Verification failed"}
 
 
 # Convenience function
