@@ -67,7 +67,7 @@ class LegalTextParser:
     - Heading detection (h1, h2 based on font size)
     - Bold text detection using pixel density
     - Indentation detection
-    - Legal-specific typo correction
+    - Legal-specific typo correction (Upstage OCR 버그 보완)
     """
 
     # Legal document style thresholds
@@ -76,22 +76,126 @@ class LegalTextParser:
     INDENT_PX = 20       # 20px from baseline = indented
     BOLD_RATIO = 1.10    # 10% denser = bold
 
-    # Legal typo patterns
-    LEGAL_TYPO_PATTERNS = [
-        # 갑(甲) 뒤의 오타 복원
-        (r'\bZ\b', '乙'),
-        (r'\bE\b', '乙'),
-        # 법조문 숫자 오타
-        (r'(제\s*\d+)[oO](조)', r'\g<1>0\g<2>'),
-        # 띄어쓰기 오류
-        (r'제(\d+)조', r'제\g<1>조'),
+    # ============================================
+    # 갑을병정(甲乙丙丁) 한자 오인 교정
+    # ============================================
+    PARTY_CORRECTIONS = {
+        # 을(乙) 오인 패턴
+        'Z': '乙',
+        'z': '乙',
+        'E': '乙',      # E가 乙로 오인되는 경우
+        '2': '乙',      # 숫자 2가 乙로 오인되는 경우 (컨텍스트 확인 필요)
+        # 병(丙) 오인 패턴
+        'C': '丙',      # C가 丙으로 오인
+        # 정(丁) 오인 패턴
+        'T': '丁',      # T가 丁으로 오인
+        # 무(戊), 기(己), 경(庚), 신(辛), 임(壬), 계(癸)
+    }
+
+    # 갑을병정 시퀀스에서의 교정
+    PARTY_SEQUENCE_PATTERNS = [
+        # 갑 다음에 오는 Z, E, 2 → 을
+        (r'(갑|甲)\s*[,、]\s*[ZzE2](?=\s*[,、]|\s*$|\s+)', r'\1, 乙'),
+        (r'(갑|甲)\s+[ZzE2](?=\s|$)', r'\1 乙'),
+        # 을 다음에 오는 C → 병
+        (r'(을|乙)\s*[,、]\s*[Cc](?=\s*[,、]|\s*$|\s+)', r'\1, 丙'),
+        (r'(을|乙)\s+[Cc](?=\s|$)', r'\1 丙'),
+        # 병 다음에 오는 T → 정
+        (r'(병|丙)\s*[,、]\s*[Tt](?=\s*[,、]|\s*$|\s+)', r'\1, 丁'),
+        (r'(병|丙)\s+[Tt](?=\s|$)', r'\1 丁'),
+        # 단독 패턴: "갑과 Z" → "갑과 乙"
+        (r'(갑|甲)\s*(과|와|및|,)\s*[ZzE2]', r'\1\2 乙'),
+        (r'[ZzE2]\s*(과|와|및|,)\s*(갑|甲)', r'乙\1 \2'),
     ]
 
-    # 로마 숫자 매핑
+    # ============================================
+    # 숫자/문자 혼동 교정 (0과 o, 1과 l/I 등)
+    # ============================================
+    NUMBER_LETTER_PATTERNS = [
+        # 법조문에서 o/O를 0으로 교정 (제1o조 → 제10조)
+        (r'(제\s*\d+)[oO](\d*\s*조)', r'\g<1>0\g<2>'),
+        (r'(제\s*\d+\s*조\s*제?\s*\d*)[oO](\d*\s*항)', r'\g<1>0\g<2>'),
+        (r'(제\s*\d+\s*조\s*제?\s*\d*\s*항?\s*제?\s*\d*)[oO](\d*\s*호)', r'\g<1>0\g<2>'),
+        # 금액에서 o/O를 0으로 교정 (1oo,ooo원 → 100,000원)
+        (r'(\d)[oO](\d)', r'\g<1>0\g<2>'),
+        (r'(\d)[oO]([,\.])', r'\g<1>0\g<2>'),
+        (r'([,\.])[oO](\d)', r'\g<1>0\g<2>'),
+        # 연도에서 o를 0으로 (2o23년 → 2023년)
+        (r'(19|20)\s*[oO]\s*(\d)\s*년', r'\g<1>0\g<2>년'),
+        (r'(19|20)\s*(\d)\s*[oO]\s*년', r'\g<1>\g<2>0년'),
+        # l/I를 1로 교정 (조문 번호에서)
+        (r'(제\s*)[lI](\d*\s*조)', r'\g<1>1\g<2>'),
+        (r'(제\s*\d+)[lI](\s*조)', r'\g<1>1\g<2>'),
+        # 날짜에서 l을 1로 (l2월 → 12월, 3l일 → 31일)
+        (r'([lI])(\d\s*월)', r'1\g<2>'),
+        (r'(\d)[lI](\s*월)', r'\g<1>1\g<2>'),
+        (r'([lI])(\d\s*일)', r'1\g<2>'),
+        (r'(\d)[lI](\s*일)', r'\g<1>1\g<2>'),
+    ]
+
+    # ============================================
+    # 로마 숫자 교정
+    # ============================================
     ROMAN_NUMERALS = {
         'I': 'Ⅰ', 'II': 'Ⅱ', 'III': 'Ⅲ',
         'IV': 'Ⅳ', 'V': 'Ⅴ', 'VI': 'Ⅵ',
-        'VII': 'Ⅶ', 'VIII': 'Ⅷ', 'IX': 'Ⅸ', 'X': 'Ⅹ'
+        'VII': 'Ⅶ', 'VIII': 'Ⅷ', 'IX': 'Ⅸ', 'X': 'Ⅹ',
+        'XI': 'Ⅺ', 'XII': 'Ⅻ'
+    }
+
+    # 로마 숫자 패턴 (문장/항목 시작 부분에서)
+    ROMAN_NUMERAL_PATTERNS = [
+        # 항목 번호로 사용된 로마 숫자 (I. II. III. 등)
+        (r'^([IⅠ])\.(\s)', r'Ⅰ.\g<2>'),
+        (r'^(II|[IⅠ]{2})\.(\s)', r'Ⅱ.\g<2>'),
+        (r'^(III|[IⅠ]{3})\.(\s)', r'Ⅲ.\g<2>'),
+        (r'^(IV)\.(\s)', r'Ⅳ.\g<2>'),
+        (r'^([VⅤ])\.(\s)', r'Ⅴ.\g<2>'),
+        # 괄호 안 로마 숫자
+        (r'\(([IⅠ])\)', r'(Ⅰ)'),
+        (r'\((II|[IⅠ]{2})\)', r'(Ⅱ)'),
+        (r'\((III|[IⅠ]{3})\)', r'(Ⅲ)'),
+        (r'\((IV)\)', r'(Ⅳ)'),
+        (r'\(([VⅤ])\)', r'(Ⅴ)'),
+    ]
+
+    # ============================================
+    # 법률 용어 특수 교정
+    # ============================================
+    LEGAL_TERM_PATTERNS = [
+        # 조항호 띄어쓰기 정규화
+        (r'제\s+(\d+)\s*조', r'제\g<1>조'),
+        (r'제\s*(\d+)\s+조', r'제\g<1>조'),
+        (r'제\s+(\d+)\s*항', r'제\g<1>항'),
+        (r'제\s*(\d+)\s+항', r'제\g<1>항'),
+        (r'제\s+(\d+)\s*호', r'제\g<1>호'),
+        (r'제\s*(\d+)\s+호', r'제\g<1>호'),
+        # 원고/피고 오타
+        (r'원고(?![가-힣])', '원고'),
+        (r'피고(?![가-힣])', '피고'),
+        # 금액 단위 교정
+        (r'(\d)\s*원(?!\s*고|\s*피)', r'\g<1>원'),
+        # 날짜 형식 정규화
+        (r'(\d{4})\s*[.·]\s*(\d{1,2})\s*[.·]\s*(\d{1,2})', r'\g<1>. \g<2>. \g<3>.'),
+    ]
+
+    # ============================================
+    # 특수문자/기호 교정
+    # ============================================
+    SYMBOL_CORRECTIONS = {
+        '「': '「',  # 꺾쇠 정규화
+        '」': '」',
+        '『': '『',
+        '』': '』',
+        '"': '"',   # 따옴표 정규화
+        '"': '"',
+        ''': "'",
+        ''': "'",
+        '−': '-',   # 하이픈 정규화
+        '–': '-',
+        '—': '-',
+        '．': '.',  # 마침표 정규화
+        '，': ',',  # 쉼표 정규화
     }
 
     def __init__(self, image: np.ndarray):
@@ -169,6 +273,14 @@ class LegalTextParser:
     def fix_typos(self, text: str) -> str:
         """
         Fix legal document specific typos.
+        Comprehensive OCR error correction for Korean legal documents.
+
+        Corrections include:
+        - 갑을병정(甲乙丙丁) 한자 오인 (Z→乙, E→乙 등)
+        - 숫자/문자 혼동 (0↔o, 1↔l/I)
+        - 로마 숫자 정규화 (I→Ⅰ, II→Ⅱ 등)
+        - 법률 용어 띄어쓰기 정규화
+        - 특수문자 정규화
 
         Args:
             text: Raw OCR text
@@ -176,17 +288,45 @@ class LegalTextParser:
         Returns:
             Corrected text
         """
-        # Apply regex patterns
-        for pattern, replacement in self.LEGAL_TYPO_PATTERNS:
-            if '갑' in text or '甲' in text:
+        if not text:
+            return text
+
+        # Step 1: 특수문자/기호 정규화
+        for old_char, new_char in self.SYMBOL_CORRECTIONS.items():
+            text = text.replace(old_char, new_char)
+
+        # Step 2: 갑을병정 시퀀스 교정 (컨텍스트 기반)
+        # 갑, 甲이 포함된 경우에만 을병정 교정 적용
+        if any(party in text for party in ['갑', '甲', '을', '乙', '병', '丙']):
+            for pattern, replacement in self.PARTY_SEQUENCE_PATTERNS:
                 text = re.sub(pattern, replacement, text)
 
-        # Roman numeral conversion
+        # Step 3: 숫자/문자 혼동 교정 (o↔0, l↔1 등)
+        for pattern, replacement in self.NUMBER_LETTER_PATTERNS:
+            text = re.sub(pattern, replacement, text)
+
+        # Step 4: 로마 숫자 교정
+        for pattern, replacement in self.ROMAN_NUMERAL_PATTERNS:
+            text = re.sub(pattern, replacement, text, flags=re.MULTILINE)
+
+        # Step 5: 법률 용어 띄어쓰기 정규화
+        for pattern, replacement in self.LEGAL_TERM_PATTERNS:
+            text = re.sub(pattern, replacement, text)
+
+        # Step 6: 단독 로마 숫자 변환 (문맥상 항목 번호로 판단되는 경우)
         words = text.split()
         corrected_words = []
-        for word in words:
-            if word in self.ROMAN_NUMERALS:
-                corrected_words.append(self.ROMAN_NUMERALS[word])
+        for i, word in enumerate(words):
+            # 마침표가 붙은 로마 숫자 (I. II. III. 등)
+            if word.rstrip('.') in self.ROMAN_NUMERALS and word.endswith('.'):
+                corrected_words.append(self.ROMAN_NUMERALS[word.rstrip('.')] + '.')
+            # 괄호 없이 단독으로 쓰인 로마 숫자 (문장 시작 또는 이전 단어가 조사/접속사)
+            elif word in self.ROMAN_NUMERALS:
+                # 문장 시작이거나 이전 단어가 특정 조사인 경우에만 변환
+                if i == 0 or (i > 0 and corrected_words[-1] in [',', '및', '또는', '그리고']):
+                    corrected_words.append(self.ROMAN_NUMERALS[word])
+                else:
+                    corrected_words.append(word)
             else:
                 corrected_words.append(word)
 
