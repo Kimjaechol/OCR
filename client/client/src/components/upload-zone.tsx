@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Upload, FileText, Loader2, Check, AlertCircle, Download, Eye, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,22 @@ export function UploadZone() {
       pollingRef.current = null;
     }
   }, []);
+
+  // Cleanup polling on component unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+    };
+  }, []);
+
+  // HTML escape function to prevent XSS
+  const escapeHtml = (text: string): string => {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  };
 
   // Poll for task status
   const pollTaskStatus = useCallback(async (taskId: string) => {
@@ -219,7 +235,9 @@ export function UploadZone() {
         const data = await response.json();
         const newWindow = window.open('', '_blank');
         if (newWindow) {
-          newWindow.document.write(`<pre style="white-space: pre-wrap; font-family: monospace; padding: 20px;">${data.markdown}</pre>`);
+          // Escape HTML to prevent XSS
+          const escapedMarkdown = escapeHtml(data.markdown || '');
+          newWindow.document.write(`<pre style="white-space: pre-wrap; font-family: monospace; padding: 20px;">${escapedMarkdown}</pre>`);
           newWindow.document.close();
         }
       }

@@ -142,8 +142,10 @@ class RunPodClient {
    * Poll for task completion
    * Compatible with both 'state' and 'status' fields from server
    */
-  async waitForCompletion(taskId, onProgress = null, pollInterval = 2000) {
-    while (true) {
+  async waitForCompletion(taskId, onProgress = null, pollInterval = 2000, maxRetries = 300) {
+    let retries = 0;
+
+    while (retries < maxRetries) {
       const statusRes = await this.getTaskStatus(taskId);
 
       if (onProgress) {
@@ -164,7 +166,10 @@ class RunPodClient {
 
       // Wait before next poll (2 seconds like user's code)
       await new Promise(resolve => setTimeout(resolve, pollInterval));
+      retries++;
     }
+
+    throw new Error(`작업 시간 초과: ${maxRetries * pollInterval / 1000}초 후 시간 초과됨`);
   }
 
   /**

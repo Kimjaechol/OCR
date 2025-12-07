@@ -348,7 +348,25 @@ CSS 클래스 참조:
         current_chunk = ""
 
         for para in paragraphs:
-            if len(current_chunk) + len(para) + 2 <= max_chars:
+            # Handle oversized paragraphs by splitting them further
+            if len(para) > max_chars:
+                # Save current chunk first
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                    current_chunk = ""
+                # Split oversized paragraph by sentences or fixed length
+                while len(para) > max_chars:
+                    # Try to split at sentence boundary
+                    split_pos = para.rfind('. ', 0, max_chars)
+                    if split_pos == -1:
+                        split_pos = max_chars
+                    else:
+                        split_pos += 1  # Include the period
+                    chunks.append(para[:split_pos].strip())
+                    para = para[split_pos:].strip()
+                if para:
+                    current_chunk = para + "\n\n"
+            elif len(current_chunk) + len(para) + 2 <= max_chars:
                 current_chunk += para + "\n\n"
             else:
                 if current_chunk:
@@ -506,6 +524,7 @@ CSS 클래스 참조:
 
             # Build the prompt content
             content_parts = []
+            has_image = False
 
             # Add the original image if provided (for multimodal comparison)
             if original_image_path:
@@ -513,6 +532,7 @@ CSS 클래스 참조:
                     image = PIL.Image.open(original_image_path)
                     content_parts.append(image)
                     content_parts.append("\n위 이미지는 원본 PDF 페이지입니다.\n\n")
+                    has_image = True
                 except Exception as e:
                     logger.warning(f"Failed to load image from path: {e}")
 
@@ -521,6 +541,7 @@ CSS 클래스 참조:
                     image = PIL.Image.open(io.BytesIO(original_image_bytes))
                     content_parts.append(image)
                     content_parts.append("\n위 이미지는 원본 PDF 페이지입니다.\n\n")
+                    has_image = True
                 except Exception as e:
                     logger.warning(f"Failed to load image from bytes: {e}")
 
@@ -531,7 +552,7 @@ CSS 클래스 참조:
             # Call Gemini
             for attempt in range(self.max_retries):
                 try:
-                    if len(content_parts) > 1:
+                    if has_image:
                         # Multimodal request with image
                         response = self.model.generate_content(content_parts)
                     else:

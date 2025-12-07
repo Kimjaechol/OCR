@@ -4,6 +4,13 @@
  * UI logic and event handling
  */
 
+// HTML escape function to prevent XSS
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 // State
 let selectedFiles = [];
 let isProcessing = false;
@@ -205,7 +212,7 @@ function updateFileList() {
     <div class="file-item">
       <span class="file-icon">${file.name.endsWith('.pdf') ? '📄' : '🖼️'}</span>
       <div class="file-info">
-        <div class="file-name">${file.name}</div>
+        <div class="file-name">${escapeHtml(file.name)}</div>
         <div class="file-size">${formatFileSize(file.size)}</div>
       </div>
       <button class="file-remove" onclick="removeFile(${index})">✕</button>
@@ -325,18 +332,21 @@ function displayResults(results) {
     return;
   }
 
-  resultsList.innerHTML = results.files.map(file => `
+  resultsList.innerHTML = results.files.map(file => {
+    const escapedPath = file.outputPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return `
     <div class="result-item">
       <span class="result-icon">✅</span>
       <div class="result-info">
-        <div class="result-name">${file.fileName}</div>
-        <div class="result-path">${file.outputPath}</div>
+        <div class="result-name">${escapeHtml(file.fileName)}</div>
+        <div class="result-path">${escapeHtml(file.outputPath)}</div>
       </div>
-      <button class="btn result-action" onclick="openFile('${file.outputPath.replace(/\\/g, '\\\\')}')">
+      <button class="btn result-action" onclick="openFile('${escapedPath}')">
         열기
       </button>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function handleError(error) {

@@ -551,6 +551,8 @@ class HTMLGenerator:
             return f'<p>{self._escape_html(markdown_table)}</p>'
 
         html_parts = ['<table>']
+        header_added = False
+        tbody_opened = False
 
         for i, line in enumerate(lines):
             # Skip separator line (---)
@@ -563,13 +565,15 @@ class HTMLGenerator:
             if not cells:
                 continue
 
-            if i == 0:
-                # Header row
+            if not header_added:
+                # First valid row becomes header
                 html_parts.append('<thead><tr>')
                 for cell in cells:
                     html_parts.append(f'<th>{self._escape_html(cell)}</th>')
                 html_parts.append('</tr></thead>')
                 html_parts.append('<tbody>')
+                header_added = True
+                tbody_opened = True
             else:
                 # Data row
                 html_parts.append('<tr>')
@@ -577,7 +581,8 @@ class HTMLGenerator:
                     html_parts.append(f'<td>{self._escape_html(cell)}</td>')
                 html_parts.append('</tr>')
 
-        html_parts.append('</tbody>')
+        if tbody_opened:
+            html_parts.append('</tbody>')
         html_parts.append('</table>')
 
         return '\n'.join(html_parts)
