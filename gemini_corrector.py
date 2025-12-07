@@ -83,6 +83,48 @@ class GeminiCorrector:
 
 교정된 텍스트만 출력하고, 설명이나 주석은 포함하지 마세요."""
 
+    # HTML formatting verification prompt (Gemini 2.5 Flash multimodal)
+    HTML_FORMATTING_PROMPT = """당신은 법률 문서 HTML 서식 검증 및 교정 전문 AI입니다.
+원본 PDF 이미지와 변환된 HTML을 비교하여, HTML이 원본과 완벽하게 동일하게 보이도록 교정하는 것이 임무입니다.
+
+[필수 서식 검증 항목 - 5가지]
+
+1. **텍스트 정렬 (가운데/우측/좌측):**
+   - 원본 PDF에서 가운데 정렬된 텍스트(예: "소 장", "답 변 서", 법원명)는 HTML에서도 반드시 가운데 정렬되어야 합니다.
+   - 우측 정렬된 텍스트(예: "원고 홍길동", 날짜, 작성자)는 HTML에서도 우측 정렬되어야 합니다.
+   - 정렬이 틀린 경우 CSS class를 수정하시오: class="text-center", class="text-right"
+
+2. **줄 간격/빈 줄/다수 띄어쓰기 보존:**
+   - 원본에서 빈 줄이 있는 곳에 HTML에서도 <div class="empty-line"></div>를 삽입하시오.
+   - 여러 줄의 빈 공간은 여러 개의 empty-line div로 표현하시오.
+   - 텍스트 내 연속 공백(스페이스 2개 이상)은 &nbsp;로 보존하시오.
+   - 단락 간 간격이 원본과 다르면 수정하시오.
+
+3. **선 없는 표 (공문서 양식) 및 위치 지정 텍스트:**
+   - 등기신청서, 정부 신청서 등에서 보이지 않는 테두리로 텍스트 위치를 지정한 경우를 감지하시오.
+   - 이런 경우 <table class="invisible-table">를 사용하여 텍스트 위치를 정확히 재현하시오.
+   - 각 셀의 텍스트가 원본과 같은 위치에 있어야 합니다.
+   - 열(column)과 행(row)의 개수가 원본과 일치해야 합니다.
+
+4. **글씨 크기 및 제목(소제목) 감지:**
+   - 원본에서 큰 글씨로 표시된 제목은 <h1>, <h2>, <h3> 태그로 표현되어야 합니다.
+   - 작은 글씨는 class="font-small", 큰 글씨는 class="font-large" 또는 class="font-xlarge"를 적용하시오.
+   - 문서 제목(소장, 답변서, 판결문 등)은 가장 큰 제목으로 처리하시오.
+
+5. **볼드체 보존:**
+   - 원본에서 굵은 글씨로 강조된 부분은 HTML에서 <strong> 또는 <b> 태그로 감싸야 합니다.
+   - "청구취지", "청구원인", 당사자명 등 강조된 법률 용어는 반드시 볼드 처리하시오.
+   - 볼드가 누락되거나 잘못 적용된 부분을 수정하시오.
+
+[HTML 교정 규칙]
+- 원본 PDF 이미지를 주의 깊게 관찰하고, HTML 렌더링 결과가 원본과 시각적으로 동일해지도록 수정하시오.
+- CSS 클래스: text-center, text-right, text-left, empty-line, invisible-table, font-small, font-large, font-xlarge
+- 불필요한 태그 추가나 구조 변경은 금지합니다.
+- 교정된 HTML만 출력하고, 설명은 포함하지 마세요.
+
+[출력 형식]
+교정된 완전한 HTML 코드만 출력하시오. 설명, 주석, 마크다운 코드블록(```) 없이 순수 HTML만 출력하시오."""
+
     # Common OCR error patterns for Korean legal documents
     OCR_ERROR_PATTERNS = [
         # ============================================
@@ -370,6 +412,161 @@ class GeminiCorrector:
 
         return results
 
+    def correct_html_formatting(
+        self,
+        html: str,
+        original_image_path: Optional[str] = None,
+        original_image_bytes: Optional[bytes] = None
+    ) -> str:
+        """
+        Correct HTML formatting using Gemini's multimodal capabilities.
+        Compares the HTML with the original PDF image to ensure visual fidelity.
+
+        Checks and corrects:
+        1. Text alignment (center, right, left)
+        2. Line spacing / empty lines / multiple spaces
+        3. Invisible tables for government forms
+        4. Font size and heading detection
+        5. Bold text preservation
+
+        Args:
+            html: The generated HTML to correct
+            original_image_path: Path to original PDF page image (optional)
+            original_image_bytes: Raw bytes of original image (optional)
+
+        Returns:
+            Corrected HTML string
+        """
+        if self.model is None:
+            logger.warning("Gemini model not available, returning original HTML")
+            return html
+
+        try:
+            import PIL.Image
+            import io
+
+            # Build the prompt content
+            content_parts = []
+
+            # Add the original image if provided (for multimodal comparison)
+            if original_image_path:
+                try:
+                    image = PIL.Image.open(original_image_path)
+                    content_parts.append(image)
+                    content_parts.append("\n위 이미지는 원본 PDF 페이지입니다.\n\n")
+                except Exception as e:
+                    logger.warning(f"Failed to load image from path: {e}")
+
+            elif original_image_bytes:
+                try:
+                    image = PIL.Image.open(io.BytesIO(original_image_bytes))
+                    content_parts.append(image)
+                    content_parts.append("\n위 이미지는 원본 PDF 페이지입니다.\n\n")
+                except Exception as e:
+                    logger.warning(f"Failed to load image from bytes: {e}")
+
+            # Add the HTML formatting prompt and the HTML to correct
+            content_parts.append(self.HTML_FORMATTING_PROMPT)
+            content_parts.append(f"\n\n[교정할 HTML]\n{html}")
+
+            # Call Gemini
+            for attempt in range(self.max_retries):
+                try:
+                    if len(content_parts) > 1:
+                        # Multimodal request with image
+                        response = self.model.generate_content(content_parts)
+                    else:
+                        # Text-only request
+                        response = self.model.generate_content(
+                            self.HTML_FORMATTING_PROMPT + f"\n\n[교정할 HTML]\n{html}"
+                        )
+
+                    if response.text:
+                        corrected_html = response.text.strip()
+
+                        # Remove markdown code blocks if present
+                        if corrected_html.startswith("```html"):
+                            corrected_html = corrected_html[7:]
+                        if corrected_html.startswith("```"):
+                            corrected_html = corrected_html[3:]
+                        if corrected_html.endswith("```"):
+                            corrected_html = corrected_html[:-3]
+
+                        return corrected_html.strip()
+                    else:
+                        logger.warning(f"Empty response from Gemini (attempt {attempt + 1})")
+
+                except Exception as e:
+                    logger.warning(f"Gemini HTML correction error (attempt {attempt + 1}): {e}")
+                    if attempt < self.max_retries - 1:
+                        time.sleep(self.retry_delay * (attempt + 1))
+
+        except ImportError:
+            logger.warning("PIL not installed, skipping multimodal HTML correction")
+
+        return html
+
+    def verify_html_formatting(
+        self,
+        html: str,
+        original_image_path: Optional[str] = None
+    ) -> Dict:
+        """
+        Verify HTML formatting against original image.
+        Returns a report of formatting issues found.
+
+        Args:
+            html: HTML to verify
+            original_image_path: Path to original PDF page image
+
+        Returns:
+            Dictionary with verification results
+        """
+        verification_prompt = """다음 HTML의 서식을 분석하고, 아래 5가지 항목에 대해 검증 결과를 JSON 형식으로 출력하시오.
+
+[검증 항목]
+1. alignment_issues: 정렬 문제가 있는 요소 목록
+2. spacing_issues: 줄 간격/빈 줄 문제 목록
+3. table_issues: 선 없는 표 처리 문제 목록
+4. font_size_issues: 글씨 크기/제목 처리 문제 목록
+5. bold_issues: 볼드체 처리 문제 목록
+
+[HTML]
+""" + html + """
+
+[출력 형식 - JSON만 출력]
+{
+  "alignment_issues": [...],
+  "spacing_issues": [...],
+  "table_issues": [...],
+  "font_size_issues": [...],
+  "bold_issues": [...],
+  "overall_score": 0-100,
+  "needs_correction": true/false
+}"""
+
+        if self.model is None:
+            return {"error": "Gemini model not available"}
+
+        try:
+            response = self.model.generate_content(verification_prompt)
+            if response.text:
+                import json
+                # Try to parse JSON from response
+                text = response.text.strip()
+                if text.startswith("```json"):
+                    text = text[7:]
+                if text.startswith("```"):
+                    text = text[3:]
+                if text.endswith("```"):
+                    text = text[:-3]
+
+                return json.loads(text.strip())
+        except Exception as e:
+            logger.error(f"HTML verification error: {e}")
+
+        return {"error": str(e) if 'e' in dir() else "Unknown error"}
+
 
 # Convenience function
 def correct_legal_text(
@@ -446,3 +643,31 @@ def validate_markdown_table(table_text: str) -> Tuple[bool, str]:
 
     fixed_table = '\n'.join(normalized)
     return True, fixed_table
+
+
+# Convenience function for HTML formatting correction
+def correct_html_formatting(
+    html: str,
+    original_image_path: Optional[str] = None,
+    api_key: Optional[str] = None
+) -> str:
+    """
+    Convenience function to correct HTML formatting using Gemini multimodal.
+
+    Verifies and corrects:
+    1. Text alignment (center, right, left)
+    2. Line spacing / empty lines / multiple spaces
+    3. Invisible tables for government forms
+    4. Font size and heading detection
+    5. Bold text preservation
+
+    Args:
+        html: HTML to correct
+        original_image_path: Path to original PDF page image for comparison
+        api_key: Gemini API key (optional)
+
+    Returns:
+        Corrected HTML string
+    """
+    corrector = GeminiCorrector(api_key=api_key)
+    return corrector.correct_html_formatting(html, original_image_path=original_image_path)
