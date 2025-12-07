@@ -8,8 +8,9 @@ Detects both bordered and borderless tables
 import cv2
 import numpy as np
 from typing import List, Dict, Tuple, Optional, Union
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from enum import Enum
 from loguru import logger
 
 try:
@@ -28,6 +29,13 @@ class DetectedRegion:
     image: Optional[np.ndarray] = None
 
 
+class TextAlignment(Enum):
+    """Text alignment types"""
+    LEFT = "left"
+    CENTER = "center"
+    RIGHT = "right"
+
+
 @dataclass
 class TextFormatInfo:
     """Text formatting information detected from image analysis"""
@@ -36,6 +44,28 @@ class TextFormatInfo:
     is_bold: bool
     is_heading: bool
     stroke_width: float = 1.0
+    alignment: str = "left"  # left, center, right
+    line_spacing_before: int = 0  # pixels of empty space before this text
+
+
+@dataclass
+class InvisibleTableCell:
+    """Cell in an invisible table"""
+    bbox: Tuple[int, int, int, int]
+    text: str = ""
+    row: int = 0
+    col: int = 0
+
+
+@dataclass
+class InvisibleTableInfo:
+    """Detected invisible table structure"""
+    bbox: Tuple[int, int, int, int]
+    rows: int
+    cols: int
+    cells: List[InvisibleTableCell] = field(default_factory=list)
+    column_positions: List[int] = field(default_factory=list)
+    row_positions: List[int] = field(default_factory=list)
 
 
 class LayoutAnalyzer:
@@ -349,12 +379,14 @@ class LayoutAnalyzer:
         text_bboxes: List[Tuple[int, int, int, int]]
     ) -> List[TextFormatInfo]:
         """
-        Detect text formatting (bold, heading) using OpenCV analysis.
+        Detect text formatting (bold, heading, alignment, spacing) using OpenCV analysis.
 
         Algorithm:
         1. For each text bbox, calculate stroke width using distance transform
         2. Compare stroke width to median to detect bold
         3. Use bbox height to estimate font size and detect headings
+        4. Analyze x position relative to page width to detect alignment
+        5. Calculate vertical spacing between text blocks
 
         Args:
             image: BGR image array
@@ -373,6 +405,8 @@ class LayoutAnalyzer:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         else:
             gray = image
+
+        img_h, img_w = gray.shape[:2]
 
         # Calculate stroke widths for all bboxes
         stroke_widths = []
@@ -407,22 +441,274 @@ class LayoutAnalyzer:
         # Heading threshold: height > 1.2x median
         heading_threshold = median_height * 1.2
 
+        # Sort bboxes by Y position for line spacing calculation
+        sorted_indices = sorted(range(len(text_bboxes)), key=lambda i: text_bboxes[i][1])
+
+        # Calculate alignments for all bboxes
+        alignments = self._detect_text_alignments(text_bboxes, img_w)
+
         for i, bbox in enumerate(text_bboxes):
+            x1, y1, x2, y2 = bbox
             stroke_width = stroke_widths[i]
             height = heights[i]
 
             is_bold = stroke_width > bold_threshold
             is_heading = height > heading_threshold
+            alignment = alignments[i]
+
+            # Calculate line spacing before this text
+            line_spacing = self._calculate_line_spacing(i, text_bboxes, sorted_indices)
 
             format_infos.append(TextFormatInfo(
                 bbox=bbox,
                 estimated_font_size=height * 0.75,  # Approximate pt size
                 is_bold=is_bold,
                 is_heading=is_heading,
-                stroke_width=stroke_width
+                stroke_width=stroke_width,
+                alignment=alignment,
+                line_spacing_before=line_spacing
             ))
 
         return format_infos
+
+    def _detect_text_alignments(
+        self,
+        text_bboxes: List[Tuple[int, int, int, int]],
+        page_width: int
+    ) -> List[str]:
+        """
+        Detect text alignment for each bbox based on position.
+
+        Args:
+            text_bboxes: List of text bounding boxes
+            page_width: Width of the page/image
+
+        Returns:
+            List of alignment strings ("left", "center", "right")
+        """
+        alignments = []
+
+        # Define margins (typically 5-15% of page width)
+        left_margin = page_width * 0.08
+        right_margin = page_width * 0.92
+
+        # Center detection tolerance (within 10% of center)
+        center_tolerance = page_width * 0.10
+
+        for bbox in text_bboxes:
+            x1, y1, x2, y2 = bbox
+            text_width = x2 - x1
+            text_center = (x1 + x2) / 2
+            page_center = page_width / 2
+
+            # Check if text spans most of the width (full-width text)
+            if text_width > page_width * 0.7:
+                alignments.append("left")
+                continue
+
+            # Check for center alignment
+            if abs(text_center - page_center) < center_tolerance:
+                # Additional check: left and right margins should be similar
+                left_space = x1
+                right_space = page_width - x2
+                if abs(left_space - right_space) < page_width * 0.15:
+                    alignments.append("center")
+                    continue
+
+            # Check for right alignment
+            if x2 > right_margin and x1 > page_width * 0.4:
+                alignments.append("right")
+                continue
+
+            # Default to left alignment
+            alignments.append("left")
+
+        return alignments
+
+    def _calculate_line_spacing(
+        self,
+        current_idx: int,
+        text_bboxes: List[Tuple[int, int, int, int]],
+        sorted_indices: List[int]
+    ) -> int:
+        """
+        Calculate vertical spacing before a text block.
+
+        Args:
+            current_idx: Index of current bbox
+            text_bboxes: List of all bboxes
+            sorted_indices: Indices sorted by Y position
+
+        Returns:
+            Pixel spacing before this text block
+        """
+        current_pos = sorted_indices.index(current_idx)
+        if current_pos == 0:
+            return 0
+
+        prev_idx = sorted_indices[current_pos - 1]
+        prev_bbox = text_bboxes[prev_idx]
+        current_bbox = text_bboxes[current_idx]
+
+        # Calculate gap between previous block's bottom and current block's top
+        gap = current_bbox[1] - prev_bbox[3]
+
+        return max(0, gap)
+
+    def detect_invisible_tables(
+        self,
+        image: np.ndarray,
+        text_bboxes: List[Tuple[int, int, int, int]]
+    ) -> List[InvisibleTableInfo]:
+        """
+        Detect invisible tables based on text alignment patterns.
+
+        Government forms often use invisible tables to position text.
+        This detects columnar text arrangements that suggest table structure.
+
+        Args:
+            image: BGR image array
+            text_bboxes: List of text bounding boxes
+
+        Returns:
+            List of detected invisible table structures
+        """
+        invisible_tables = []
+
+        if len(text_bboxes) < 4:
+            return invisible_tables
+
+        img_h, img_w = image.shape[:2] if len(image.shape) >= 2 else (0, 0)
+
+        # Group text blocks by their row (similar Y positions)
+        row_groups = self._group_by_rows(text_bboxes)
+
+        # Find rows with multiple columns (potential table rows)
+        multi_col_rows = [row for row in row_groups if len(row) >= 2]
+
+        if len(multi_col_rows) < 2:
+            return invisible_tables
+
+        # Analyze column structure
+        column_positions = self._detect_column_positions(multi_col_rows, img_w)
+
+        if len(column_positions) < 2:
+            return invisible_tables
+
+        # Find the bounding box of the invisible table
+        all_bboxes = [bbox for row in multi_col_rows for bbox in row]
+        x1 = min(b[0] for b in all_bboxes)
+        y1 = min(b[1] for b in all_bboxes)
+        x2 = max(b[2] for b in all_bboxes)
+        y2 = max(b[3] for b in all_bboxes)
+
+        # Create cells
+        cells = []
+        row_positions = []
+        for row_idx, row in enumerate(multi_col_rows):
+            if row:
+                row_positions.append(min(b[1] for b in row))
+            for col_idx, bbox in enumerate(sorted(row, key=lambda b: b[0])):
+                cells.append(InvisibleTableCell(
+                    bbox=bbox,
+                    row=row_idx,
+                    col=col_idx
+                ))
+
+        invisible_tables.append(InvisibleTableInfo(
+            bbox=(x1, y1, x2, y2),
+            rows=len(multi_col_rows),
+            cols=len(column_positions),
+            cells=cells,
+            column_positions=column_positions,
+            row_positions=row_positions
+        ))
+
+        return invisible_tables
+
+    def _group_by_rows(
+        self,
+        text_bboxes: List[Tuple[int, int, int, int]],
+        tolerance: float = 0.5
+    ) -> List[List[Tuple[int, int, int, int]]]:
+        """
+        Group text blocks into rows based on Y position overlap.
+
+        Args:
+            text_bboxes: List of text bounding boxes
+            tolerance: Overlap tolerance factor
+
+        Returns:
+            List of rows, each containing bboxes in that row
+        """
+        if not text_bboxes:
+            return []
+
+        # Sort by Y position
+        sorted_bboxes = sorted(text_bboxes, key=lambda b: b[1])
+
+        rows = []
+        current_row = [sorted_bboxes[0]]
+        current_row_bottom = sorted_bboxes[0][3]
+
+        for bbox in sorted_bboxes[1:]:
+            bbox_height = bbox[3] - bbox[1]
+            # Check if this bbox overlaps with current row
+            if bbox[1] < current_row_bottom - bbox_height * tolerance:
+                current_row.append(bbox)
+                current_row_bottom = max(current_row_bottom, bbox[3])
+            else:
+                rows.append(current_row)
+                current_row = [bbox]
+                current_row_bottom = bbox[3]
+
+        if current_row:
+            rows.append(current_row)
+
+        return rows
+
+    def _detect_column_positions(
+        self,
+        rows: List[List[Tuple[int, int, int, int]]],
+        page_width: int
+    ) -> List[int]:
+        """
+        Detect column positions from multiple rows.
+
+        Args:
+            rows: List of rows with bboxes
+            page_width: Page width for reference
+
+        Returns:
+            List of column X positions
+        """
+        # Collect all x1 positions from multi-column rows
+        x_positions = []
+        for row in rows:
+            sorted_row = sorted(row, key=lambda b: b[0])
+            for bbox in sorted_row:
+                x_positions.append(bbox[0])
+
+        if not x_positions:
+            return []
+
+        # Cluster x positions to find column boundaries
+        x_positions.sort()
+        clusters = []
+        current_cluster = [x_positions[0]]
+
+        for x in x_positions[1:]:
+            # If close to last position in cluster, add to cluster
+            if x - current_cluster[-1] < page_width * 0.05:
+                current_cluster.append(x)
+            else:
+                clusters.append(int(np.mean(current_cluster)))
+                current_cluster = [x]
+
+        if current_cluster:
+            clusters.append(int(np.mean(current_cluster)))
+
+        return clusters
 
     def _calculate_stroke_width(self, roi: np.ndarray) -> float:
         """

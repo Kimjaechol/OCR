@@ -31,7 +31,7 @@ except ImportError:
     AutoModelForCausalLM = None
     AutoTokenizer = None
 
-from layout_analyzer import LayoutAnalyzer, DetectedRegion, TextFormatInfo
+from layout_analyzer import LayoutAnalyzer, DetectedRegion, TextFormatInfo, InvisibleTableInfo
 from html_generator import HTMLGenerator, StyledText, TextStyle, DocumentFormatter
 
 
@@ -44,6 +44,11 @@ class TextSegment:
     tag: str = "p"  # 'h1', 'h2', 'p'
     is_bold: bool = False
     is_indented: bool = False
+    alignment: str = "left"  # left, center, right
+    line_spacing_before: int = 0  # Pixels of empty space before this text
+    x_pos: int = 0
+    bbox: Tuple[int, int, int, int] = (0, 0, 0, 0)  # (x1, y1, x2, y2)
+    font_size: float = 12.0
 
 
 @dataclass
@@ -332,15 +337,20 @@ class LegalTextParser:
 
         return ' '.join(corrected_words)
 
-    def parse_segments(self, ocr_result: List) -> List[TextSegment]:
+    def parse_segments(
+        self,
+        ocr_result: List,
+        page_width: int = 0
+    ) -> List[TextSegment]:
         """
-        Parse PaddleOCR results into structured segments.
+        Parse PaddleOCR results into structured segments with alignment and spacing.
 
         Args:
             ocr_result: PaddleOCR result list
+            page_width: Width of the page for alignment detection
 
         Returns:
-            List of TextSegment objects
+            List of TextSegment objects with alignment and spacing info
         """
         if not ocr_result:
             return []
@@ -349,12 +359,14 @@ class LegalTextParser:
         heights = []
         densities = []
         x_positions = []
+        bboxes = []
 
         for line in ocr_result:
             box = line[0]
             h, x, y, w, pts = self.get_geometry(box)
             heights.append(h)
             x_positions.append(x)
+            bboxes.append((x, y, x + w, y + h))
 
             density = self.calculate_density(pts)
             if density > 0:
@@ -363,16 +375,25 @@ class LegalTextParser:
         # Calculate medians
         median_h = statistics.median(heights) if heights else 20
         min_x = min(x_positions) if x_positions else 0
+        max_x = max(x_positions) if x_positions else 0
         median_d = statistics.median(densities) if densities else 0.5
+
+        # If page_width not provided, estimate from bboxes
+        if page_width == 0 and bboxes:
+            page_width = max(b[2] for b in bboxes) + min_x
+
+        # Sort indices by Y position for line spacing calculation
+        sorted_indices = sorted(range(len(ocr_result)), key=lambda i: bboxes[i][1])
 
         # Parse each line
         segments = []
-        for line in ocr_result:
+        for idx, line in enumerate(ocr_result):
             box = line[0]
             raw_text = line[1][0]
             confidence = line[1][1] if len(line[1]) > 1 else 0.0
 
             h, x, y, w, pts = self.get_geometry(box)
+            bbox = (x, y, x + w, y + h)
 
             # Apply typo correction
             text = self.fix_typos(raw_text)
@@ -389,16 +410,101 @@ class LegalTextParser:
             elif ratio >= self.H2_SCALE:
                 tag = "h2"
 
+            # Detect alignment
+            alignment = self._detect_alignment(bbox, page_width)
+
+            # Calculate line spacing before this text
+            line_spacing = self._calculate_line_spacing(idx, bboxes, sorted_indices)
+
             segments.append(TextSegment(
                 category="text",
                 y_pos=y,
                 text=text,
                 tag=tag,
                 is_bold=is_bold,
-                is_indented=is_indented
+                is_indented=is_indented,
+                alignment=alignment,
+                line_spacing_before=line_spacing,
+                x_pos=x,
+                bbox=bbox,
+                font_size=h * 0.75  # Approximate point size
             ))
 
         return segments
+
+    def _detect_alignment(
+        self,
+        bbox: Tuple[int, int, int, int],
+        page_width: int
+    ) -> str:
+        """
+        Detect text alignment based on position.
+
+        Args:
+            bbox: Bounding box (x1, y1, x2, y2)
+            page_width: Page width
+
+        Returns:
+            Alignment string ("left", "center", "right")
+        """
+        if page_width == 0:
+            return "left"
+
+        x1, y1, x2, y2 = bbox
+        text_width = x2 - x1
+        text_center = (x1 + x2) / 2
+        page_center = page_width / 2
+
+        # Full-width text is left-aligned
+        if text_width > page_width * 0.7:
+            return "left"
+
+        # Center tolerance (within 10% of center)
+        center_tolerance = page_width * 0.10
+
+        # Check for center alignment
+        if abs(text_center - page_center) < center_tolerance:
+            left_space = x1
+            right_space = page_width - x2
+            if abs(left_space - right_space) < page_width * 0.15:
+                return "center"
+
+        # Check for right alignment
+        right_margin = page_width * 0.92
+        if x2 > right_margin and x1 > page_width * 0.4:
+            return "right"
+
+        return "left"
+
+    def _calculate_line_spacing(
+        self,
+        current_idx: int,
+        bboxes: List[Tuple[int, int, int, int]],
+        sorted_indices: List[int]
+    ) -> int:
+        """
+        Calculate vertical spacing before a text block.
+
+        Args:
+            current_idx: Index of current bbox
+            bboxes: List of all bboxes
+            sorted_indices: Indices sorted by Y position
+
+        Returns:
+            Pixel spacing before this text block
+        """
+        current_pos = sorted_indices.index(current_idx)
+        if current_pos == 0:
+            return 0
+
+        prev_idx = sorted_indices[current_pos - 1]
+        prev_bbox = bboxes[prev_idx]
+        current_bbox = bboxes[current_idx]
+
+        # Calculate gap between previous block's bottom and current block's top
+        gap = current_bbox[1] - prev_bbox[3]
+
+        return max(0, gap)
 
 
 class HybridOCRPipeline:
@@ -552,7 +658,7 @@ class HybridOCRPipeline:
     def _process_text(
         self,
         text_image: np.ndarray
-    ) -> Tuple[List[TextSegment], float]:
+    ) -> Tuple[List[TextSegment], float, int]:
         """
         Process text image with PaddleOCR.
 
@@ -560,21 +666,24 @@ class HybridOCRPipeline:
             text_image: BGR image with text (tables removed)
 
         Returns:
-            Tuple of (parsed segments, average confidence)
+            Tuple of (parsed segments, average confidence, page_width)
         """
         if self.paddle_ocr is None:
-            return [], 0.0
+            return [], 0.0, 0
 
         try:
             results = self.paddle_ocr.ocr(text_image, cls=True)
 
             if not results or not results[0]:
-                return [], 0.0
+                return [], 0.0, text_image.shape[1] if len(text_image.shape) >= 2 else 0
+
+            # Get page width from image
+            page_width = text_image.shape[1] if len(text_image.shape) >= 2 else 0
 
             # Parse with legal text parser
             gray = cv2.cvtColor(text_image, cv2.COLOR_BGR2GRAY)
             parser = LegalTextParser(gray)
-            segments = parser.parse_segments(results[0])
+            segments = parser.parse_segments(results[0], page_width)
 
             # Calculate average confidence
             confidences = []
@@ -584,11 +693,11 @@ class HybridOCRPipeline:
 
             avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
 
-            return segments, avg_conf
+            return segments, avg_conf, page_width
 
         except Exception as e:
             logger.error(f"PaddleOCR error: {e}")
-            return [], 0.0
+            return [], 0.0, 0
 
     def _segments_to_markdown(self, segments: List[TextSegment]) -> str:
         """
@@ -631,14 +740,16 @@ class HybridOCRPipeline:
     def _segments_to_html(
         self,
         segments: List[TextSegment],
-        page_number: int = 1
+        page_number: int = 1,
+        page_width: int = 0
     ) -> str:
         """
-        Convert segments to HTML format with proper styling.
+        Convert segments to HTML format with proper styling, alignment, and spacing.
 
         Args:
             segments: List of text/table segments
             page_number: Page number for title
+            page_width: Page width for relative positioning
 
         Returns:
             HTML formatted string
@@ -656,7 +767,20 @@ class HybridOCRPipeline:
                     text=html_table,
                     style=TextStyle.TABLE,
                     y_pos=seg.y_pos,
-                    is_bold=False
+                    is_bold=False,
+                    alignment=seg.alignment,
+                    line_spacing_before=seg.line_spacing_before
+                ))
+            elif seg.category == 'invisible_table':
+                # Invisible table (government forms)
+                html_table = html_generator.markdown_table_to_html(seg.text)
+                styled_segments.append(StyledText(
+                    text=html_table,
+                    style=TextStyle.INVISIBLE_TABLE,
+                    y_pos=seg.y_pos,
+                    is_bold=False,
+                    alignment=seg.alignment,
+                    line_spacing_before=seg.line_spacing_before
                 ))
             else:
                 # Determine style
@@ -673,7 +797,12 @@ class HybridOCRPipeline:
                     text=seg.text,
                     style=style,
                     y_pos=seg.y_pos,
-                    is_bold=seg.is_bold
+                    x_pos=seg.x_pos,
+                    font_size=seg.font_size,
+                    is_bold=seg.is_bold,
+                    alignment=seg.alignment,
+                    line_spacing_before=seg.line_spacing_before,
+                    page_width=page_width
                 ))
 
         # Generate HTML
@@ -692,6 +821,13 @@ class HybridOCRPipeline:
     ) -> OCRResult:
         """
         Process a single image through the OCR pipeline.
+
+        Includes:
+        - Text alignment detection (left, center, right)
+        - Line spacing preservation
+        - Invisible table detection for government forms
+        - Bold/heading detection
+        - Font size estimation
 
         Args:
             image_input: Image path or BGR image array
@@ -714,23 +850,32 @@ class HybridOCRPipeline:
         else:
             image = image_input.copy()
 
+        # Get page dimensions
+        page_height, page_width = image.shape[:2]
+
         # Step 1: Layout analysis
         logger.debug(f"Page {page_number}: Analyzing layout...")
         tables, text_image = self.layout_analyzer.split_content(image)
 
-        # Step 2: Process text
+        # Step 2: Process text (returns segments, confidence, page_width)
         logger.debug(f"Page {page_number}: Processing text...")
-        text_segments, text_conf = self._process_text(text_image)
+        text_segments, text_conf, detected_width = self._process_text(text_image)
+
+        # Use detected width if available, otherwise use image width
+        effective_width = detected_width if detected_width > 0 else page_width
 
         # Step 3: Process tables
         logger.debug(f"Page {page_number}: Processing {len(tables)} tables...")
         table_segments = []
         for table in tables:
             table_text = self._process_table(table.image)
+            # Detect if this is a borderless/invisible table (heuristic_table)
+            is_invisible = table.region_type == "heuristic_table"
             table_segments.append(TextSegment(
-                category="table",
+                category="invisible_table" if is_invisible else "table",
                 y_pos=table.box[1],
-                text=table_text
+                text=table_text,
+                bbox=table.box
             ))
 
         # Step 4: Merge and sort by Y position
@@ -738,7 +883,7 @@ class HybridOCRPipeline:
         all_segments.sort(key=lambda x: x.y_pos)
 
         # Step 5: Generate HTML first (preserves formatting better)
-        html = self._segments_to_html(all_segments, page_number)
+        html = self._segments_to_html(all_segments, page_number, effective_width)
 
         # Step 6: Generate Markdown from HTML (or direct conversion)
         markdown = self._segments_to_markdown(all_segments)

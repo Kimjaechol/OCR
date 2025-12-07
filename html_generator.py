@@ -27,6 +27,14 @@ class TextStyle(Enum):
     HEADING3 = "h3"
     BOLD = "bold"
     TABLE = "table"
+    INVISIBLE_TABLE = "invisible_table"  # Table with no visible borders
+
+
+class TextAlignment(Enum):
+    """Text alignment types"""
+    LEFT = "left"
+    CENTER = "center"
+    RIGHT = "right"
 
 
 @dataclass
@@ -39,6 +47,9 @@ class StyledText:
     font_size: float = 12.0
     is_bold: bool = False
     confidence: float = 1.0
+    alignment: str = "left"  # left, center, right
+    line_spacing_before: int = 0  # Pixels of empty space before this text
+    page_width: int = 0  # Page width for relative positioning
 
 
 @dataclass
@@ -108,27 +119,76 @@ class HTMLGenerator:
                 margin: 10px 0;
                 text-align: justify;
             }
+            /* Text alignment classes */
+            .text-left {
+                text-align: left;
+            }
+            .text-center {
+                text-align: center;
+            }
+            .text-right {
+                text-align: right;
+            }
+            /* Empty line / spacing */
+            .empty-line {
+                height: 1em;
+                margin: 0;
+            }
+            .spacing-small {
+                margin-top: 0.5em;
+            }
+            .spacing-medium {
+                margin-top: 1em;
+            }
+            .spacing-large {
+                margin-top: 2em;
+            }
             strong, b {
                 font-weight: bold;
             }
+            /* Visible table with borders */
             table {
                 width: 100%;
                 border-collapse: collapse;
                 margin: 20px 0;
                 font-size: 14px;
             }
-            th, td {
+            table.visible-table th,
+            table.visible-table td {
                 border: 1px solid #ccc;
                 padding: 10px 12px;
                 text-align: left;
                 vertical-align: top;
             }
-            th {
+            table.visible-table th {
                 background-color: #f5f5f5;
                 font-weight: bold;
             }
-            tr:nth-child(even) {
+            table.visible-table tr:nth-child(even) {
                 background-color: #fafafa;
+            }
+            /* Invisible table (no borders) for government forms */
+            table.invisible-table {
+                border: none;
+                width: 100%;
+                border-collapse: collapse;
+                margin: 10px 0;
+            }
+            table.invisible-table th,
+            table.invisible-table td {
+                border: none;
+                padding: 5px 10px;
+                text-align: left;
+                vertical-align: top;
+            }
+            table.invisible-table th {
+                background-color: transparent;
+                font-weight: normal;
+            }
+            /* Preserve exact positioning */
+            .positioned-text {
+                position: relative;
+                white-space: pre-wrap;
             }
             .page-break {
                 page-break-after: always;
@@ -152,6 +212,28 @@ class HTMLGenerator:
                 padding: 10px 15px;
                 background: #f9f9f9;
                 border-radius: 4px;
+            }
+            /* Font size variations */
+            .font-small { font-size: 11px; }
+            .font-normal { font-size: 14px; }
+            .font-large { font-size: 18px; }
+            .font-xlarge { font-size: 22px; }
+            /* Print styles */
+            @media print {
+                body {
+                    max-width: none;
+                    padding: 0;
+                }
+                .page-break {
+                    page-break-after: always;
+                    border: none;
+                    margin: 0;
+                    padding: 0;
+                }
+                table.invisible-table th,
+                table.invisible-table td {
+                    border: none !important;
+                }
             }
         </style>
         """
@@ -226,7 +308,7 @@ class HTMLGenerator:
         include_css: bool = True
     ) -> str:
         """
-        Generate HTML from styled text segments.
+        Generate HTML from styled text segments with alignment and spacing.
 
         Args:
             segments: List of StyledText objects
@@ -253,33 +335,38 @@ class HTMLGenerator:
             '<body>',
         ])
 
-        # Group consecutive segments
-        current_paragraph = []
+        prev_segment = None
 
         for segment in segments:
+            # Add spacing/empty lines before this segment
+            spacing_html = self._create_spacing(segment, prev_segment)
+            if spacing_html:
+                html_parts.append(spacing_html)
+
             if segment.style == TextStyle.TABLE:
-                # Flush paragraph before table
-                if current_paragraph:
-                    html_parts.append(self._create_paragraph(current_paragraph))
-                    current_paragraph = []
-                html_parts.append(segment.text)  # Table HTML already formatted
+                # Visible table with borders
+                html_parts.append(self._wrap_table_with_class(segment.text, "visible-table"))
+
+            elif segment.style == TextStyle.INVISIBLE_TABLE:
+                # Invisible table without borders
+                html_parts.append(self._wrap_table_with_class(segment.text, "invisible-table"))
 
             elif segment.style in (TextStyle.HEADING1, TextStyle.HEADING2, TextStyle.HEADING3):
-                # Flush paragraph before heading
-                if current_paragraph:
-                    html_parts.append(self._create_paragraph(current_paragraph))
-                    current_paragraph = []
                 html_parts.append(self._create_heading(segment))
 
             elif segment.style == TextStyle.BOLD:
-                current_paragraph.append(f'<strong>{self._escape_html(segment.text)}</strong>')
+                html_parts.append(self._create_styled_paragraph(
+                    f'<strong>{self._escape_html(segment.text)}</strong>',
+                    segment
+                ))
 
             else:
-                current_paragraph.append(self._escape_html(segment.text))
+                html_parts.append(self._create_styled_paragraph(
+                    self._escape_html(segment.text),
+                    segment
+                ))
 
-        # Flush remaining paragraph
-        if current_paragraph:
-            html_parts.append(self._create_paragraph(current_paragraph))
+            prev_segment = segment
 
         html_parts.extend([
             '</body>',
@@ -288,20 +375,157 @@ class HTMLGenerator:
 
         return '\n'.join(html_parts)
 
+    def _create_spacing(self, segment: StyledText, prev_segment: Optional[StyledText]) -> str:
+        """
+        Create HTML for spacing/empty lines between segments.
+
+        Args:
+            segment: Current segment
+            prev_segment: Previous segment (or None)
+
+        Returns:
+            HTML string for spacing (empty if no spacing needed)
+        """
+        if prev_segment is None:
+            return ''
+
+        spacing = segment.line_spacing_before
+
+        # Estimate typical line height (in pixels)
+        typical_line_height = 25
+
+        if spacing <= typical_line_height:
+            return ''
+        elif spacing <= typical_line_height * 2:
+            return '<div class="empty-line"></div>'
+        elif spacing <= typical_line_height * 3:
+            return '<div class="empty-line"></div><div class="empty-line"></div>'
+        else:
+            # Multiple empty lines
+            num_lines = min(spacing // typical_line_height, 5)
+            return ''.join(['<div class="empty-line"></div>'] * num_lines)
+
     def _create_heading(self, segment: StyledText) -> str:
-        """Create heading HTML element"""
+        """Create heading HTML element with alignment"""
         tag = segment.style.value  # h1, h2, or h3
         text = self._escape_html(segment.text)
-        return f'<{tag}>{text}</{tag}>'
+        alignment = segment.alignment
 
-    def _create_paragraph(self, parts: List[str]) -> str:
-        """Create paragraph from text parts"""
+        if alignment == "center":
+            return f'<{tag} class="text-center">{text}</{tag}>'
+        elif alignment == "right":
+            return f'<{tag} class="text-right">{text}</{tag}>'
+        else:
+            return f'<{tag}>{text}</{tag}>'
+
+    def _create_styled_paragraph(self, content: str, segment: StyledText) -> str:
+        """
+        Create paragraph with alignment and font size.
+
+        Args:
+            content: The HTML content (already escaped)
+            segment: StyledText with formatting info
+
+        Returns:
+            HTML paragraph string
+        """
+        if not content.strip():
+            return ''
+
+        classes = []
+        styles = []
+
+        # Add alignment class
+        if segment.alignment == "center":
+            classes.append("text-center")
+        elif segment.alignment == "right":
+            classes.append("text-right")
+
+        # Add font size class based on estimated size
+        if segment.font_size > 20:
+            classes.append("font-xlarge")
+        elif segment.font_size > 16:
+            classes.append("font-large")
+        elif segment.font_size < 10:
+            classes.append("font-small")
+
+        # Build the tag
+        class_attr = f' class="{" ".join(classes)}"' if classes else ''
+        style_attr = f' style="{"; ".join(styles)}"' if styles else ''
+
+        return f'<p{class_attr}{style_attr}>{content}</p>'
+
+    def _wrap_table_with_class(self, table_html: str, css_class: str) -> str:
+        """
+        Add CSS class to table element.
+
+        Args:
+            table_html: HTML table string
+            css_class: CSS class to add
+
+        Returns:
+            Modified table HTML
+        """
+        # If table already has class, append to it
+        if 'class="' in table_html:
+            return table_html.replace('class="', f'class="{css_class} ')
+        else:
+            return table_html.replace('<table>', f'<table class="{css_class}">')
+
+    def _create_paragraph(self, parts: List[str], alignment: str = "left") -> str:
+        """Create paragraph from text parts with alignment"""
         content = ' '.join(parts)
         # Clean up whitespace
         content = re.sub(r'\s+', ' ', content).strip()
         if content:
+            if alignment == "center":
+                return f'<p class="text-center">{content}</p>'
+            elif alignment == "right":
+                return f'<p class="text-right">{content}</p>'
             return f'<p>{content}</p>'
         return ''
+
+    def generate_invisible_table_html(
+        self,
+        cells: List[Dict],
+        rows: int,
+        cols: int
+    ) -> str:
+        """
+        Generate HTML for invisible table (government forms).
+
+        Args:
+            cells: List of cell dicts with 'text', 'row', 'col'
+            rows: Number of rows
+            cols: Number of columns
+
+        Returns:
+            HTML table string with no visible borders
+        """
+        # Create empty grid
+        grid = [['' for _ in range(cols)] for _ in range(rows)]
+
+        # Fill in cells
+        for cell in cells:
+            row = cell.get('row', 0)
+            col = cell.get('col', 0)
+            text = cell.get('text', '')
+            if 0 <= row < rows and 0 <= col < cols:
+                grid[row][col] = text
+
+        # Generate HTML
+        html_parts = ['<table class="invisible-table">']
+
+        for row in grid:
+            html_parts.append('<tr>')
+            for cell_text in row:
+                escaped = self._escape_html(cell_text)
+                html_parts.append(f'<td>{escaped}</td>')
+            html_parts.append('</tr>')
+
+        html_parts.append('</table>')
+
+        return '\n'.join(html_parts)
 
     def _escape_html(self, text: str) -> str:
         """Escape HTML special characters"""
@@ -451,15 +675,20 @@ class DocumentFormatter:
         self,
         text_segments: List[Dict],
         table_segments: List[Dict],
-        page_number: int = 1
+        page_number: int = 1,
+        page_width: int = 0,
+        invisible_tables: List[Dict] = None
     ) -> HTMLDocument:
         """
         Format OCR results into HTML and Markdown.
 
         Args:
-            text_segments: List of text segment dicts with 'text', 'bbox', 'confidence'
+            text_segments: List of text segment dicts with 'text', 'bbox', 'confidence',
+                          'alignment', 'line_spacing_before'
             table_segments: List of table segment dicts with 'markdown', 'bbox'
             page_number: Page number
+            page_width: Page width for relative positioning
+            invisible_tables: List of invisible table dicts for government forms
 
         Returns:
             HTMLDocument with formatted content
@@ -481,6 +710,8 @@ class DocumentFormatter:
             bbox = seg.get('bbox', [0, 0, 0, 0])
             confidence = seg.get('confidence', 1.0)
             is_bold = seg.get('is_bold', False)
+            alignment = seg.get('alignment', 'left')
+            line_spacing = seg.get('line_spacing_before', 0)
 
             if len(bbox) >= 4:
                 font_size = bbox[3] - bbox[1]  # Height as proxy for font size
@@ -505,26 +736,55 @@ class DocumentFormatter:
                 x_pos=x_pos,
                 font_size=font_size,
                 is_bold=is_bold,
-                confidence=confidence
+                confidence=confidence,
+                alignment=alignment,
+                line_spacing_before=line_spacing,
+                page_width=page_width
             ))
 
-        # Process table segments
+        # Process visible table segments
         for seg in table_segments:
             markdown_table = seg.get('markdown', '')
             bbox = seg.get('bbox', [0, 0, 0, 0])
             y_pos = bbox[1] if len(bbox) >= 2 else 0
+            is_invisible = seg.get('is_invisible', False)
 
             # Convert markdown table to HTML
             html_table = self.html_generator.markdown_table_to_html(markdown_table)
 
             styled_segments.append(StyledText(
                 text=html_table,
-                style=TextStyle.TABLE,
+                style=TextStyle.INVISIBLE_TABLE if is_invisible else TextStyle.TABLE,
                 y_pos=y_pos,
                 x_pos=0,
                 font_size=0,
                 is_bold=False
             ))
+
+        # Process invisible tables (government forms)
+        if invisible_tables:
+            for inv_table in invisible_tables:
+                cells = inv_table.get('cells', [])
+                rows = inv_table.get('rows', 0)
+                cols = inv_table.get('cols', 0)
+                bbox = inv_table.get('bbox', [0, 0, 0, 0])
+                y_pos = bbox[1] if len(bbox) >= 2 else 0
+
+                if rows > 0 and cols > 0:
+                    html_table = self.html_generator.generate_invisible_table_html(
+                        cells=cells,
+                        rows=rows,
+                        cols=cols
+                    )
+
+                    styled_segments.append(StyledText(
+                        text=html_table,
+                        style=TextStyle.INVISIBLE_TABLE,
+                        y_pos=y_pos,
+                        x_pos=0,
+                        font_size=0,
+                        is_bold=False
+                    ))
 
         # Sort by Y position
         styled_segments.sort(key=lambda x: x.y_pos)
