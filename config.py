@@ -42,7 +42,7 @@ class Settings(BaseSettings):
         description="Path to GOT-OCR model"
     )
     yolo_model_path: str = Field(
-        default="./weights/yolo_table_best.pt/yolov8n.pt",
+        default="./weights/yolo_table_best.pt",
         description="Path to YOLO table detection model"
     )
 

@@ -6,15 +6,13 @@ Supports recursive folder scanning and parallel processing
 """
 
 import os
-import glob
 import json
 import time
 import shutil
 from pathlib import Path
-from typing import List, Dict, Optional, Generator, Callable, Any
-from dataclasses import dataclass, field, asdict
+from typing import List, Dict, Optional, Callable, Any
+from dataclasses import dataclass, field
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from loguru import logger
 
 from pdf_processor import PDFProcessor, PDFInfo

@@ -6,7 +6,6 @@ Supports 5000+ page PDF processing with Gemini LLM correction
 """
 
 import os
-import json
 import time
 from pathlib import Path
 from typing import Dict, Optional, List, Any
@@ -14,7 +13,6 @@ from datetime import datetime
 from loguru import logger
 
 from celery import Celery, states
-from celery.exceptions import Ignore
 from dotenv import load_dotenv
 
 try:

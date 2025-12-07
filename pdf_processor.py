@@ -5,11 +5,12 @@ Handles PDF to image conversion with batching for large documents
 Supports up to 5000+ pages with memory-efficient processing
 """
 
+import gc
 import os
 import tempfile
 import shutil
 from pathlib import Path
-from typing import List, Generator, Optional, Tuple
+from typing import List, Generator, Optional
 from dataclasses import dataclass
 from loguru import logger
 
@@ -331,7 +332,6 @@ class PDFProcessor:
             current_page = batch_end + 1
 
             # Memory cleanup hint
-            import gc
             gc.collect()
 
     def save_page_image(

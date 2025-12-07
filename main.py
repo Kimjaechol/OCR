@@ -12,6 +12,7 @@ import aiofiles
 from pathlib import Path
 from typing import Optional, List
 from datetime import datetime
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +34,22 @@ from tasks import (
 # Get settings
 settings = get_settings()
 
+
+# ============================================
+# Lifespan Context Manager
+# ============================================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler for startup and shutdown"""
+    # Startup
+    logger.info("Legal Document OCR API starting up...")
+    logger.info(f"Upload directory: {settings.upload_dir}")
+    logger.info(f"Output directory: {settings.output_dir}")
+    yield
+    # Shutdown
+    logger.info("Legal Document OCR API shutting down...")
+
+
 # ============================================
 # FastAPI Application
 # ============================================
@@ -41,7 +58,8 @@ app = FastAPI(
     description="초가성비 법률 문서 OCR 서비스 - 99.99% 정확도 목표",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # CORS middleware
@@ -649,23 +667,6 @@ async def global_exception_handler(request, exc):
         status_code=500,
         content={"detail": "Internal server error", "error": str(exc)}
     )
-
-
-# ============================================
-# Startup/Shutdown Events
-# ============================================
-@app.on_event("startup")
-async def startup_event():
-    """Application startup"""
-    logger.info("Legal Document OCR API starting up...")
-    logger.info(f"Upload directory: {settings.upload_dir}")
-    logger.info(f"Output directory: {settings.output_dir}")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Application shutdown"""
-    logger.info("Legal Document OCR API shutting down...")
 
 
 # ============================================
