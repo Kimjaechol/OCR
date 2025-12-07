@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <title>LawOCR - 법률 문서 OCR</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo">
+        <div class="logo-icon">⚖️</div>
+        <span class="logo-text">LawOCR</span>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-page="dashboard">
+          <span class="nav-icon">📊</span>
+          <span>대시보드</span>
+        </button>
+        <button class="nav-item" data-page="convert">
+          <span class="nav-icon">📄</span>
+          <span>문서 변환</span>
+        </button>
+        <button class="nav-item" data-page="history">
+          <span class="nav-icon">📁</span>
+          <span>변환 기록</span>
+        </button>
+        <button class="nav-item" data-page="settings">
+          <span class="nav-icon">⚙️</span>
+          <span>설정</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="server-status" id="serverStatus">
+          <span class="status-dot offline"></span>
+          <span>서버 연결 확인 중...</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Dashboard Page -->
+      <div class="page active" id="page-dashboard">
+        <header class="page-header">
+          <h1>대시보드</h1>
+          <p>법률 문서 OCR 현황</p>
+        </header>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">📄</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statTotalDocs">0</span>
+              <span class="stat-label">총 변환 문서</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">📑</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statTotalPages">0</span>
+              <span class="stat-label">총 페이지</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⏱️</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statAvgTime">-</span>
+              <span class="stat-label">평균 처리 시간</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">✅</div>
+            <div class="stat-info">
+              <span class="stat-value" id="statSuccessRate">-</span>
+              <span class="stat-label">성공률</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="quick-actions">
+          <h2>빠른 시작</h2>
+          <div class="action-buttons">
+            <button class="action-btn primary" onclick="goToPage('convert')">
+              <span class="btn-icon">➕</span>
+              새 변환 시작
+            </button>
+            <button class="action-btn" onclick="openOutputFolder()">
+              <span class="btn-icon">📂</span>
+              결과 폴더 열기
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Convert Page -->
+      <div class="page" id="page-convert">
+        <header class="page-header">
+          <h1>문서 변환</h1>
+          <p>PDF 및 이미지 파일을 마크다운으로 변환</p>
+        </header>
+
+        <!-- File Drop Zone -->
+        <div class="drop-zone" id="dropZone">
+          <div class="drop-content">
+            <div class="drop-icon">📥</div>
+            <h3>파일을 여기에 드롭하세요</h3>
+            <p>또는 아래 버튼을 클릭하세요</p>
+            <div class="drop-buttons">
+              <button class="btn" onclick="selectFiles()">파일 선택</button>
+              <button class="btn" onclick="selectFolder()">폴더 선택</button>
+            </div>
+            <p class="drop-hint">지원 형식: PDF, PNG, JPG, JPEG, TIFF, BMP</p>
+          </div>
+        </div>
+
+        <!-- Selected Files List -->
+        <div class="file-list-container" id="fileListContainer" style="display: none;">
+          <div class="file-list-header">
+            <h3>선택된 파일</h3>
+            <button class="btn-text" onclick="clearFiles()">모두 제거</button>
+          </div>
+          <div class="file-list" id="fileList"></div>
+          <div class="file-summary">
+            <span id="fileSummary">0개 파일, 0 페이지 예상</span>
+          </div>
+        </div>
+
+        <!-- Processing Controls -->
+        <div class="processing-controls" id="processingControls" style="display: none;">
+          <button class="btn primary large" id="startBtn" onclick="startProcessing()">
+            변환 시작
+          </button>
+          <button class="btn danger large" id="cancelBtn" onclick="cancelProcessing()" style="display: none;">
+            취소
+          </button>
+        </div>
+
+        <!-- Progress Section -->
+        <div class="progress-section" id="progressSection" style="display: none;">
+          <div class="progress-header">
+            <span class="progress-title" id="progressTitle">처리 중...</span>
+            <span class="progress-percent" id="progressPercent">0%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+          </div>
+          <div class="progress-details" id="progressDetails">
+            초기화 중...
+          </div>
+        </div>
+
+        <!-- Results Section -->
+        <div class="results-section" id="resultsSection" style="display: none;">
+          <div class="results-header">
+            <h3>변환 완료</h3>
+            <button class="btn" onclick="openOutputFolder()">결과 폴더 열기</button>
+          </div>
+          <div class="results-list" id="resultsList"></div>
+        </div>
+      </div>
+
+      <!-- History Page -->
+      <div class="page" id="page-history">
+        <header class="page-header">
+          <h1>변환 기록</h1>
+          <p>이전 변환 작업 내역</p>
+        </header>
+        <div class="history-list" id="historyList">
+          <p class="empty-state">변환 기록이 없습니다.</p>
+        </div>
+      </div>
+
+      <!-- Settings Page -->
+      <div class="page" id="page-settings">
+        <header class="page-header">
+          <h1>설정</h1>
+          <p>앱 설정 및 서버 구성</p>
+        </header>
+
+        <div class="settings-section">
+          <h3>서버 설정</h3>
+          <div class="setting-item">
+            <label>RunPod 서버 URL</label>
+            <div class="input-group">
+              <input type="text" id="settingServerUrl" placeholder="http://localhost:8888">
+              <button class="btn" onclick="testConnection()">연결 테스트</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>출력 설정</h3>
+          <div class="setting-item">
+            <label>결과 저장 폴더</label>
+            <div class="input-group">
+              <input type="text" id="settingOutputDir" readonly>
+              <button class="btn" onclick="selectOutputDir()">폴더 선택</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>처리 설정</h3>
+          <div class="setting-item">
+            <label>청크 크기 (페이지)</label>
+            <input type="number" id="settingChunkSize" min="5" max="50" value="10">
+            <p class="setting-hint">PDF를 몇 페이지씩 나눠서 처리할지 설정 (권장: 10)</p>
+          </div>
+          <div class="setting-item">
+            <label>병렬 처리 수</label>
+            <input type="number" id="settingMaxParallel" min="1" max="10" value="5">
+            <p class="setting-hint">동시에 처리할 청크 수 (권장: 5)</p>
+          </div>
+          <div class="setting-item">
+            <label class="checkbox-label">
+              <input type="checkbox" id="settingApplyGemini" checked>
+              <span>Gemini AI 교정 적용</span>
+            </label>
+            <p class="setting-hint">법률 용어 자동 교정 기능 (정확도 향상)</p>
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <button class="btn primary" onclick="saveSettings()">설정 저장</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

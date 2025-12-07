@@ -1,27 +1,58 @@
-AI Core & Image Processing
+# ============================================
+# Legal Document OCR - Production Requirements
+# ============================================
+
+# AI Core & Deep Learning
 torch>=2.0.0
 torchvision>=0.15.0
-paddlepaddle-gpu==2.6.0 # GPU 버전 (CPU만 쓴다면 paddlepaddle)
+transformers>=4.37.0
+accelerate>=0.25.0
+tiktoken>=0.5.0
+scipy>=1.11.0
+
+# PaddleOCR (Korean OCR)
+paddlepaddle-gpu>=2.6.0
 paddleocr>=2.7.0
-ultralytics>=8.0.0 # YOLOv8
-opencv-python-headless>=4.8.0 # 서버용 (GUI 없음)
+
+# YOLOv8 (Layout Detection)
+ultralytics>=8.0.0
+
+# Image Processing
+opencv-python-headless>=4.8.0
 numpy>=1.24.0
 Pillow>=10.0.0
 
-GOT-OCR Dependencies (HuggingFace)
-transformers>=4.36.0
-accelerate>=0.25.0
-tiktoken>=0.5.0
-scipy
-verovio # 악보/표 렌더링용 (GOT 권장)
+# PDF Processing
+pdf2image>=1.16.0
+PyMuPDF>=1.23.0
 
-Web Server & Async Queue
+# Web Server & API
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 python-multipart>=0.0.7
+aiofiles>=23.2.1
+jinja2>=3.1.2
+
+# Async Task Queue
 celery>=5.3.6
 redis>=5.0.1
+flower>=2.0.1
 
-LLM API
+# LLM API (Gemini)
 google-generativeai>=0.3.2
+
+# Configuration & Utilities
 python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+loguru>=0.7.2
+tenacity>=8.2.3
+
+# HTML/Markdown Conversion
+markdownify>=0.11.6
+
+# GOT-OCR Dependencies
+verovio>=4.0.0
+
+# Monitoring & Health
+prometheus-client>=0.19.0

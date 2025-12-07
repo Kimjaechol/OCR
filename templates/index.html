@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Legal Document OCR - 테스트 페이지</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', -apple-system, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 40px;
+        }
+        .card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 16px;
+            padding: 40px;
+            margin-bottom: 30px;
+        }
+        .upload-zone {
+            border: 2px dashed rgba(255,255,255,0.2);
+            border-radius: 12px;
+            padding: 60px 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.1);
+        }
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        .upload-zone h3 {
+            font-size: 1.3rem;
+            margin-bottom: 10px;
+        }
+        .upload-zone p {
+            color: #888;
+            font-size: 0.9rem;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .btn {
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .progress-container {
+            display: none;
+            margin-top: 30px;
+        }
+        .progress-container.active {
+            display: block;
+        }
+        .progress-bar {
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            height: 8px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+        .progress-fill {
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .progress-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: #888;
+        }
+        .status-message {
+            text-align: center;
+            margin-top: 15px;
+            color: #aaa;
+        }
+        .result-container {
+            display: none;
+            margin-top: 30px;
+        }
+        .result-container.active {
+            display: block;
+        }
+        .result-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .result-header .icon {
+            font-size: 24px;
+        }
+        .result-header h3 {
+            color: #4ade80;
+        }
+        .result-buttons {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        .preview-box {
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            padding: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'D2Coding', monospace;
+            font-size: 0.85rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .error-message {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+        }
+        .error-message.active {
+            display: block;
+        }
+        .info-box {
+            background: rgba(102, 126, 234, 0.1);
+            border: 1px solid rgba(102, 126, 234, 0.3);
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            font-size: 0.85rem;
+        }
+        .info-box strong {
+            color: #667eea;
+        }
+        .api-docs-link {
+            text-align: center;
+            margin-top: 30px;
+        }
+        .api-docs-link a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .api-docs-link a:hover {
+            text-decoration: underline;
+        }
+        .file-info {
+            background: rgba(255,255,255,0.05);
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            font-size: 0.85rem;
+            display: none;
+        }
+        .file-info.active {
+            display: block;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: #667eea;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Legal Document OCR</h1>
+        <p class="subtitle">법률 문서 OCR 변환 테스트 페이지</p>
+
+        <div class="card">
+            <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+                <div class="upload-icon">📄</div>
+                <h3>PDF 또는 이미지 파일을 드래그하세요</h3>
+                <p>또는 클릭하여 파일 선택 (최대 5,000페이지 지원)</p>
+                <button class="btn" type="button">파일 선택하기</button>
+            </div>
+            <input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.tiff,.bmp,.webp">
+
+            <div class="file-info" id="fileInfo">
+                <strong>선택된 파일:</strong> <span id="fileName"></span>
+            </div>
+
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-info">
+                    <span id="pageInfo">0/0 페이지</span>
+                    <span id="progressPercent">0%</span>
+                </div>
+                <div class="status-message">
+                    <span class="spinner"></span>
+                    <span id="statusMessage">처리 중...</span>
+                </div>
+            </div>
+
+            <div class="error-message" id="errorMessage"></div>
+
+            <div class="result-container" id="resultContainer">
+                <div class="result-header">
+                    <span class="icon">✅</span>
+                    <h3>변환 완료!</h3>
+                </div>
+                <div class="result-buttons">
+                    <button class="btn" onclick="downloadResult('markdown')">📥 Markdown 다운로드</button>
+                    <button class="btn btn-secondary" onclick="downloadResult('html')">📥 HTML 다운로드</button>
+                    <button class="btn btn-secondary" onclick="viewResult('html')">👁️ HTML 미리보기</button>
+                </div>
+                <div class="info-box" id="resultInfo"></div>
+                <h4 style="margin: 20px 0 10px; color: #888;">미리보기:</h4>
+                <div class="preview-box" id="previewBox"></div>
+                <button class="btn btn-secondary" style="margin-top: 20px; width: 100%;" onclick="resetUpload()">다른 파일 변환하기</button>
+            </div>
+        </div>
+
+        <div class="api-docs-link">
+            <a href="/docs" target="_blank">📚 API 문서 보기 (Swagger UI)</a>
+        </div>
+    </div>
+
+    <script>
+        const uploadZone = document.getElementById('uploadZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressFill = document.getElementById('progressFill');
+        const pageInfo = document.getElementById('pageInfo');
+        const progressPercent = document.getElementById('progressPercent');
+        const statusMessage = document.getElementById('statusMessage');
+        const errorMessage = document.getElementById('errorMessage');
+        const resultContainer = document.getElementById('resultContainer');
+        const resultInfo = document.getElementById('resultInfo');
+        const previewBox = document.getElementById('previewBox');
+
+        let currentTaskId = null;
+        let pollingInterval = null;
+
+        // Drag and drop handlers
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('dragover');
+        });
+
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('dragover');
+        });
+
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        async function handleFile(file) {
+            const validTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/tiff', 'image/bmp', 'image/webp'];
+            const ext = file.name.toLowerCase().split('.').pop();
+            const validExtensions = ['pdf', 'png', 'jpg', 'jpeg', 'tiff', 'bmp', 'webp'];
+
+            if (!validTypes.includes(file.type) && !validExtensions.includes(ext)) {
+                showError('지원하지 않는 파일 형식입니다. PDF 또는 이미지 파일을 업로드하세요.');
+                return;
+            }
+
+            fileName.textContent = file.name + ' (' + (file.size / 1024 / 1024).toFixed(2) + ' MB)';
+            fileInfo.classList.add('active');
+
+            hideError();
+            resultContainer.classList.remove('active');
+            progressContainer.classList.add('active');
+            progressFill.style.width = '0%';
+            progressPercent.textContent = '0%';
+            statusMessage.textContent = '파일 업로드 중...';
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const response = await fetch('/ocr/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || '업로드 실패');
+                }
+
+                const data = await response.json();
+                currentTaskId = data.task_id;
+
+                statusMessage.textContent = 'OCR 처리 시작...';
+                pageInfo.textContent = '0/' + (data.estimated_pages || '?') + ' 페이지';
+
+                startPolling();
+
+            } catch (error) {
+                showError(error.message);
+                progressContainer.classList.remove('active');
+            }
+        }
+
+        function startPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+            }
+            pollingInterval = setInterval(checkStatus, 1500);
+        }
+
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+        }
+
+        async function checkStatus() {
+            if (!currentTaskId) return;
+
+            try {
+                const response = await fetch('/ocr/status/' + currentTaskId);
+                const data = await response.json();
+
+                progressFill.style.width = (data.progress || 0) + '%';
+                progressPercent.textContent = (data.progress || 0) + '%';
+
+                if (data.current_page && data.total_pages) {
+                    pageInfo.textContent = data.current_page + '/' + data.total_pages + ' 페이지';
+                }
+
+                statusMessage.textContent = data.status_message || data.status || '처리 중...';
+
+                if (data.state === 'completed' || data.status === 'completed') {
+                    stopPolling();
+                    showResult(data);
+                } else if (data.state === 'failed' || data.status === 'failed') {
+                    stopPolling();
+                    showError(data.error || '처리 중 오류가 발생했습니다.');
+                    progressContainer.classList.remove('active');
+                }
+
+            } catch (error) {
+                console.error('Polling error:', error);
+            }
+        }
+
+        function showResult(data) {
+            progressContainer.classList.remove('active');
+            resultContainer.classList.add('active');
+
+            const result = data.full_result || data.result || {};
+            const pageCount = result.page_count || 1;
+            const processingTime = result.processing_time ? result.processing_time.toFixed(1) : '?';
+
+            let infoHtml = '<strong>처리 완료:</strong> ' + pageCount + '페이지<br>';
+            infoHtml += '<strong>처리 시간:</strong> ' + processingTime + '초';
+            if (result.output_dir) {
+                infoHtml += '<br><strong>출력 폴더:</strong> ' + result.output_dir;
+            }
+            resultInfo.innerHTML = infoHtml;
+
+            const markdown = data.result || result.markdown || '';
+            previewBox.textContent = markdown.substring(0, 2000) + (markdown.length > 2000 ? '\n\n... (더 보기는 다운로드 후 확인)' : '');
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.add('active');
+        }
+
+        function hideError() {
+            errorMessage.classList.remove('active');
+        }
+
+        async function downloadResult(format) {
+            if (!currentTaskId) return;
+
+            try {
+                const response = await fetch('/ocr/download/' + currentTaskId + '?format=' + format);
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'ocr_result.' + (format === 'markdown' ? 'md' : format);
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            } catch (error) {
+                showError('다운로드 중 오류가 발생했습니다.');
+            }
+        }
+
+        async function viewResult(format) {
+            if (!currentTaskId) return;
+
+            try {
+                const response = await fetch('/ocr/result/' + currentTaskId + '?format=' + format);
+                if (format === 'html') {
+                    const html = await response.text();
+                    const newWindow = window.open('', '_blank');
+                    newWindow.document.write(html);
+                    newWindow.document.close();
+                }
+            } catch (error) {
+                showError('미리보기를 불러오는 중 오류가 발생했습니다.');
+            }
+        }
+
+        function resetUpload() {
+            currentTaskId = null;
+            stopPolling();
+            fileInput.value = '';
+            fileInfo.classList.remove('active');
+            progressContainer.classList.remove('active');
+            resultContainer.classList.remove('active');
+            hideError();
+            progressFill.style.width = '0%';
+        }
+    </script>
+</body>
+</html>
