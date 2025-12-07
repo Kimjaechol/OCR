@@ -571,6 +571,110 @@ def process_folder_task(
         }
 
 
+@celery_app.task(bind=True, name='tasks.process_local_file')
+def process_local_file_task(
+    self,
+    file_path: str,
+    output_dir: str,
+    apply_gemini: bool = True
+) -> Dict[str, Any]:
+    """
+    Process a local file and save results to output directory.
+    Creates output folder next to the source file.
+
+    Args:
+        file_path: Path to local PDF or image file
+        output_dir: Output directory for results
+        apply_gemini: Whether to apply Gemini correction
+
+    Returns:
+        Dict with processing results and output file paths
+    """
+    from batch_processor import BatchProcessor
+    from pathlib import Path
+    import os
+
+    start_time = time.time()
+
+    try:
+        self.update_state(
+            state='PROCESSING',
+            meta={
+                'progress': 0,
+                'status': '파일 분석 중...'
+            }
+        )
+
+        # Create output directory
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Initialize processor with output directory
+        processor = BatchProcessor(
+            output_base_dir=output_dir,
+            use_gemini=apply_gemini
+        )
+
+        # Get file info
+        file_info = processor.get_file_info(file_path)
+        total_pages = file_info.page_count
+
+        def progress_callback(current_page, total, status):
+            progress = int((current_page / total) * 90)
+            self.update_state(
+                state='PROCESSING',
+                meta={
+                    'progress': progress,
+                    'current_page': current_page,
+                    'total_pages': total,
+                    'status': f'페이지 {current_page}/{total} {status}'
+                }
+            )
+
+        # Process the file
+        result = processor.process_single_file(
+            file_path,
+            output_dir=output_dir,
+            progress_callback=progress_callback
+        )
+
+        processor.cleanup()
+
+        if result['status'] == 'completed':
+            self.update_state(
+                state='PROCESSING',
+                meta={
+                    'progress': 95,
+                    'current_page': total_pages,
+                    'total_pages': total_pages,
+                    'status': '파일 저장 완료...'
+                }
+            )
+
+            return {
+                'status': 'completed',
+                'input_file': file_path,
+                'output_dir': output_dir,
+                'markdown_file': result.get('markdown_file'),
+                'html_file': result.get('html_file'),
+                'json_file': result.get('json_file'),
+                'page_count': result.get('page_count', 1),
+                'processing_time': time.time() - start_time,
+                'price_krw': result.get('page_count', 1) * settings.price_per_page
+            }
+        else:
+            return {
+                'status': 'failed',
+                'error': result.get('error', 'Unknown error')
+            }
+
+    except Exception as e:
+        logger.error(f"Local file processing error: {e}")
+        return {
+            'status': 'failed',
+            'error': str(e)
+        }
+
+
 # ============================================
 # Task Status Helper
 # ============================================

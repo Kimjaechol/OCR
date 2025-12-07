@@ -243,6 +243,187 @@ class BatchProcessor:
         os.makedirs(output_dir, exist_ok=True)
         return output_dir
 
+    def _generate_combined_html(self, all_results: List[Dict], title: str) -> str:
+        """
+        Generate combined HTML from page results.
+
+        Args:
+            all_results: List of page results with 'html' or 'markdown' keys
+            title: Document title
+
+        Returns:
+            Complete HTML document string
+        """
+        from html_generator import HTMLGenerator
+
+        # CSS styles from HTMLGenerator
+        html_gen = HTMLGenerator()
+
+        # Build HTML content from pages
+        page_contents = []
+        for result in all_results:
+            page_num = result.get('page', 1)
+            # Prefer HTML if available, otherwise use markdown
+            html_content = result.get('html', '')
+            if not html_content and result.get('markdown'):
+                # Simple markdown to HTML conversion for fallback
+                md = result.get('markdown', '')
+                html_content = f'<pre class="markdown-content">{md}</pre>'
+
+            # Extract body content if full HTML
+            if '<body>' in html_content:
+                import re
+                body_match = re.search(r'<body>(.*?)</body>', html_content, re.DOTALL)
+                if body_match:
+                    html_content = body_match.group(1)
+
+            page_contents.append(f'''
+<div class="page-section">
+    <div class="page-header">페이지 {page_num}</div>
+    {html_content}
+</div>
+<div class="page-break"></div>
+''')
+
+        # Complete HTML document
+        return f'''<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title} - OCR 결과</title>
+    <style>
+        * {{
+            box-sizing: border-box;
+        }}
+        body {{
+            font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+            line-height: 1.8;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background: #fff;
+            color: #333;
+        }}
+        h1 {{
+            font-size: 24px;
+            font-weight: bold;
+            margin: 30px 0 15px 0;
+            border-bottom: 2px solid #333;
+            padding-bottom: 10px;
+        }}
+        h2 {{
+            font-size: 20px;
+            font-weight: bold;
+            margin: 25px 0 12px 0;
+        }}
+        h3 {{
+            font-size: 17px;
+            font-weight: bold;
+            margin: 20px 0 10px 0;
+        }}
+        p {{
+            margin: 10px 0;
+            text-align: justify;
+        }}
+        /* Text alignment classes */
+        .text-left {{ text-align: left; }}
+        .text-center {{ text-align: center; }}
+        .text-right {{ text-align: right; }}
+        /* Empty line / spacing */
+        .empty-line {{
+            height: 1em;
+            margin: 0;
+        }}
+        .spacing-small {{ margin-top: 0.5em; }}
+        .spacing-medium {{ margin-top: 1em; }}
+        .spacing-large {{ margin-top: 2em; }}
+        strong, b {{
+            font-weight: bold;
+        }}
+        /* Visible table with borders */
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 14px;
+        }}
+        table.visible-table th,
+        table.visible-table td {{
+            border: 1px solid #ccc;
+            padding: 10px 12px;
+            text-align: left;
+            vertical-align: top;
+        }}
+        table.visible-table th {{
+            background-color: #f5f5f5;
+            font-weight: bold;
+        }}
+        /* Invisible table (no borders) for government forms */
+        table.invisible-table {{
+            border: none;
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }}
+        table.invisible-table th,
+        table.invisible-table td {{
+            border: none;
+            padding: 5px 10px;
+            text-align: left;
+            vertical-align: top;
+        }}
+        /* Font size variations */
+        .font-small {{ font-size: 11px; }}
+        .font-normal {{ font-size: 14px; }}
+        .font-large {{ font-size: 18px; }}
+        .font-xlarge {{ font-size: 22px; }}
+        /* Page sections */
+        .page-section {{
+            margin-bottom: 30px;
+        }}
+        .page-header {{
+            color: #888;
+            font-size: 12px;
+            margin-bottom: 20px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+        }}
+        .page-break {{
+            page-break-after: always;
+            border-top: 1px dashed #ccc;
+            margin: 40px 0;
+            padding-top: 20px;
+        }}
+        .markdown-content {{
+            white-space: pre-wrap;
+            font-family: inherit;
+            line-height: 1.8;
+        }}
+        /* Print styles */
+        @media print {{
+            body {{
+                max-width: none;
+                padding: 0;
+            }}
+            .page-break {{
+                page-break-after: always;
+                border: none;
+                margin: 0;
+                padding: 0;
+            }}
+            .page-header {{
+                font-size: 10px;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <h1 class="text-center">{title}</h1>
+    {''.join(page_contents)}
+</body>
+</html>'''
+
     def process_single_file(
         self,
         file_path: str,
@@ -310,6 +491,7 @@ class BatchProcessor:
                     all_results.append({
                         "page": page_image.page_number,
                         "markdown": final_markdown,
+                        "html": ocr_result.html,
                         "tables_count": ocr_result.tables_count,
                         "confidence": ocr_result.confidence
                     })
@@ -331,6 +513,7 @@ class BatchProcessor:
                 all_results.append({
                     "page": 1,
                     "markdown": final_markdown,
+                    "html": ocr_result.html,
                     "tables_count": ocr_result.tables_count,
                     "confidence": ocr_result.confidence
                 })
@@ -344,6 +527,14 @@ class BatchProcessor:
             with open(md_path, 'w', encoding='utf-8') as f:
                 f.write(combined_markdown)
             result["markdown_file"] = md_path
+
+            # Generate and save HTML file
+            html_filename = Path(file_path).stem + ".html"
+            html_path = os.path.join(output_dir, html_filename)
+            html_content = self._generate_combined_html(all_results, Path(file_path).stem)
+            with open(html_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            result["html_file"] = html_path
 
             # Save JSON file
             json_filename = Path(file_path).stem + ".json"

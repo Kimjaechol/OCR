@@ -334,6 +334,13 @@ class FolderProcessRequest(BaseModel):
     apply_gemini: bool = True
 
 
+class LocalFileProcessRequest(BaseModel):
+    """Request model for local file processing with output folder"""
+    file_path: str
+    output_in_source_dir: bool = True  # Create output folder next to source file
+    apply_gemini: bool = True
+
+
 @app.post("/ocr/process-folder", response_model=TaskResponse)
 async def process_folder(request: FolderProcessRequest):
     """
@@ -398,6 +405,82 @@ async def process_folder(request: FolderProcessRequest):
         raise
     except Exception as e:
         logger.error(f"Folder processing error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/ocr/process-local", response_model=TaskResponse)
+async def process_local_file(request: LocalFileProcessRequest):
+    """
+    로컬 파일 OCR 처리 (원본 폴더에 output 생성)
+
+    - file_path: 처리할 PDF 또는 이미지 파일 경로
+    - output_in_source_dir: True면 원본 파일 옆에 output 폴더 생성
+    - 결과: Markdown (.md), HTML (.html), JSON (.json) 파일 생성
+    """
+    try:
+        file_path = request.file_path
+
+        if not os.path.exists(file_path):
+            raise HTTPException(
+                status_code=400,
+                detail=f"파일을 찾을 수 없습니다: {file_path}"
+            )
+
+        if not os.path.isfile(file_path):
+            raise HTTPException(
+                status_code=400,
+                detail=f"유효한 파일 경로가 아닙니다: {file_path}"
+            )
+
+        # Validate file type
+        ext = Path(file_path).suffix.lower()
+        if ext not in ['.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.webp']:
+            raise HTTPException(
+                status_code=400,
+                detail=f"지원하지 않는 파일 형식입니다: {ext}"
+            )
+
+        # Determine output directory
+        if request.output_in_source_dir:
+            source_dir = os.path.dirname(file_path)
+            output_dir = os.path.join(source_dir, "output")
+        else:
+            output_dir = settings.output_dir
+
+        # Get file info for estimation
+        from batch_processor import BatchProcessor
+        processor = BatchProcessor(output_base_dir=output_dir)
+        file_info = processor.get_file_info(file_path)
+
+        logger.info(
+            f"Local file processing requested: {file_path}, "
+            f"{file_info.page_count} pages, output: {output_dir}"
+        )
+
+        # Queue processing task
+        from tasks import process_local_file_task
+        task = process_local_file_task.delay(
+            file_path,
+            output_dir=output_dir,
+            apply_gemini=request.apply_gemini
+        )
+
+        estimated_price = file_info.page_count * settings.price_per_page
+
+        return TaskResponse(
+            task_id=task.id,
+            status="processing",
+            message=f"파일 처리가 시작되었습니다. "
+                    f"예상 {file_info.page_count}페이지, "
+                    f"출력 폴더: {output_dir}",
+            estimated_pages=file_info.page_count,
+            estimated_price_krw=estimated_price
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Local file processing error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

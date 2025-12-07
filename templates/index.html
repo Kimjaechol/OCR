@@ -3,514 +3,301 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>법률 문서 OCR - 초가성비 디지털 변환 서비스</title>
+    <title>Legal Document OCR - 테스트 페이지</title>
     <style>
-        :root {
-            --primary: #2563eb;
-            --primary-dark: #1d4ed8;
-            --success: #10b981;
-            --warning: #f59e0b;
-            --danger: #ef4444;
-            --gray-50: #f9fafb;
-            --gray-100: #f3f4f6;
-            --gray-200: #e5e7eb;
-            --gray-300: #d1d5db;
-            --gray-500: #6b7280;
-            --gray-700: #374151;
-            --gray-900: #111827;
-        }
-
         * {
+            box-sizing: border-box;
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
         }
-
         body {
-            font-family: 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', -apple-system, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
             min-height: 100vh;
-            padding: 20px;
+            color: #fff;
+            padding: 40px 20px;
         }
-
         .container {
             max-width: 900px;
             margin: 0 auto;
         }
-
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 40px;
+        }
         .card {
-            background: white;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
             border-radius: 16px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-            overflow: hidden;
-        }
-
-        .header {
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-        }
-
-        .header h1 {
-            font-size: 28px;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-
-        .header p {
-            opacity: 0.9;
-            font-size: 14px;
-        }
-
-        .pricing-badge {
-            display: inline-block;
-            background: rgba(255, 255, 255, 0.2);
-            padding: 8px 16px;
-            border-radius: 20px;
-            margin-top: 12px;
-            font-size: 14px;
-            font-weight: 600;
-        }
-
-        .content {
-            padding: 30px;
-        }
-
-        .upload-zone {
-            border: 2px dashed var(--gray-300);
-            border-radius: 12px;
             padding: 40px;
+            margin-bottom: 30px;
+        }
+        .upload-zone {
+            border: 2px dashed rgba(255,255,255,0.2);
+            border-radius: 12px;
+            padding: 60px 40px;
             text-align: center;
-            transition: all 0.3s ease;
             cursor: pointer;
-            background: var(--gray-50);
+            transition: all 0.3s ease;
         }
-
-        .upload-zone:hover,
-        .upload-zone.dragover {
-            border-color: var(--primary);
-            background: rgba(37, 99, 235, 0.05);
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.1);
         }
-
         .upload-icon {
-            width: 64px;
-            height: 64px;
-            margin: 0 auto 16px;
-            background: var(--gray-200);
-            border-radius: 50%;
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        .upload-zone h3 {
+            font-size: 1.3rem;
+            margin-bottom: 10px;
+        }
+        .upload-zone p {
+            color: #888;
+            font-size: 0.9rem;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .btn {
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .progress-container {
+            display: none;
+            margin-top: 30px;
+        }
+        .progress-container.active {
+            display: block;
+        }
+        .progress-bar {
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            height: 8px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+        .progress-fill {
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .progress-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: #888;
+        }
+        .status-message {
+            text-align: center;
+            margin-top: 15px;
+            color: #aaa;
+        }
+        .result-container {
+            display: none;
+            margin-top: 30px;
+        }
+        .result-container.active {
+            display: block;
+        }
+        .result-header {
             display: flex;
             align-items: center;
-            justify-content: center;
-            font-size: 28px;
+            gap: 10px;
+            margin-bottom: 20px;
         }
-
-        .upload-zone h3 {
-            color: var(--gray-700);
-            margin-bottom: 8px;
+        .result-header .icon {
+            font-size: 24px;
         }
-
-        .upload-zone p {
-            color: var(--gray-500);
-            font-size: 14px;
+        .result-header h3 {
+            color: #4ade80;
         }
-
-        .file-input {
+        .result-buttons {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        .preview-box {
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            padding: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'D2Coding', monospace;
+            font-size: 0.85rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .error-message {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-top: 20px;
             display: none;
         }
-
-        .btn {
-            display: inline-block;
-            padding: 12px 24px;
+        .error-message.active {
+            display: block;
+        }
+        .info-box {
+            background: rgba(102, 126, 234, 0.1);
+            border: 1px solid rgba(102, 126, 234, 0.3);
+            padding: 15px 20px;
             border-radius: 8px;
-            font-weight: 600;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: none;
+            margin-top: 20px;
+            font-size: 0.85rem;
+        }
+        .info-box strong {
+            color: #667eea;
+        }
+        .api-docs-link {
+            text-align: center;
+            margin-top: 30px;
+        }
+        .api-docs-link a {
+            color: #667eea;
             text-decoration: none;
         }
-
-        .btn-primary {
-            background: var(--primary);
-            color: white;
+        .api-docs-link a:hover {
+            text-decoration: underline;
         }
-
-        .btn-primary:hover {
-            background: var(--primary-dark);
-        }
-
-        .btn-secondary {
-            background: var(--gray-200);
-            color: var(--gray-700);
-        }
-
-        .btn-secondary:hover {
-            background: var(--gray-300);
-        }
-
         .file-info {
-            display: none;
-            margin-top: 20px;
-            padding: 16px;
-            background: var(--gray-50);
+            background: rgba(255,255,255,0.05);
+            padding: 10px 15px;
             border-radius: 8px;
+            margin-top: 15px;
+            font-size: 0.85rem;
+            display: none;
         }
-
         .file-info.active {
             display: block;
         }
-
-        .file-info-row {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
-
-        .file-info-label {
-            color: var(--gray-500);
-            font-size: 14px;
-        }
-
-        .file-info-value {
-            font-weight: 600;
-            color: var(--gray-700);
-        }
-
-        .options {
-            margin-top: 20px;
-            padding: 20px;
-            background: var(--gray-50);
-            border-radius: 8px;
-        }
-
-        .options h4 {
-            margin-bottom: 12px;
-            color: var(--gray-700);
-        }
-
-        .option-row {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 8px;
-        }
-
-        .option-row input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-        }
-
-        .option-row label {
-            font-size: 14px;
-            color: var(--gray-700);
-        }
-
-        .action-buttons {
-            margin-top: 24px;
-            display: flex;
-            gap: 12px;
-            justify-content: center;
-        }
-
-        /* Progress Section */
-        .progress-section {
-            display: none;
-            margin-top: 24px;
-        }
-
-        .progress-section.active {
-            display: block;
-        }
-
-        .progress-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
-        }
-
-        .progress-title {
-            font-weight: 600;
-            color: var(--gray-700);
-        }
-
-        .progress-percent {
-            font-size: 24px;
-            font-weight: 700;
-            color: var(--primary);
-        }
-
-        .progress-bar-container {
-            height: 12px;
-            background: var(--gray-200);
-            border-radius: 6px;
-            overflow: hidden;
-        }
-
-        .progress-bar {
-            height: 100%;
-            background: linear-gradient(90deg, var(--primary) 0%, var(--success) 100%);
-            border-radius: 6px;
-            transition: width 0.3s ease;
-        }
-
-        .progress-status {
-            margin-top: 12px;
-            font-size: 14px;
-            color: var(--gray-500);
-            text-align: center;
-        }
-
-        /* Result Section */
-        .result-section {
-            display: none;
-            margin-top: 24px;
-        }
-
-        .result-section.active {
-            display: block;
-        }
-
-        .result-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-        }
-
-        .result-stats {
-            display: flex;
-            gap: 20px;
-        }
-
-        .result-stat {
-            text-align: center;
-        }
-
-        .result-stat-value {
-            font-size: 24px;
-            font-weight: 700;
-            color: var(--primary);
-        }
-
-        .result-stat-label {
-            font-size: 12px;
-            color: var(--gray-500);
-        }
-
-        .result-content {
-            background: var(--gray-900);
-            border-radius: 8px;
-            padding: 20px;
-            max-height: 400px;
-            overflow: auto;
-        }
-
-        .result-content pre {
-            color: #e5e7eb;
-            font-family: 'JetBrains Mono', 'Consolas', monospace;
-            font-size: 13px;
-            line-height: 1.6;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-
-        .result-actions {
-            margin-top: 16px;
-            display: flex;
-            gap: 12px;
-            justify-content: center;
-        }
-
-        /* Footer */
-        .footer {
-            text-align: center;
-            padding: 20px;
-            color: var(--gray-500);
-            font-size: 12px;
-            border-top: 1px solid var(--gray-200);
-        }
-
-        .footer a {
-            color: var(--primary);
-            text-decoration: none;
-        }
-
-        /* Toast */
-        .toast {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            padding: 16px 24px;
-            background: var(--gray-900);
-            color: white;
-            border-radius: 8px;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-            transform: translateY(100px);
-            opacity: 0;
-            transition: all 0.3s ease;
-            z-index: 1000;
-        }
-
-        .toast.show {
-            transform: translateY(0);
-            opacity: 1;
-        }
-
-        .toast.success {
-            background: var(--success);
-        }
-
-        .toast.error {
-            background: var(--danger);
-        }
-
-        /* Responsive */
-        @media (max-width: 640px) {
-            .header h1 {
-                font-size: 22px;
-            }
-
-            .content {
-                padding: 20px;
-            }
-
-            .upload-zone {
-                padding: 30px 20px;
-            }
-
-            .result-stats {
-                flex-direction: column;
-                gap: 10px;
-            }
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: #667eea;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
         }
     </style>
 </head>
 <body>
     <div class="container">
+        <h1>Legal Document OCR</h1>
+        <p class="subtitle">법률 문서 OCR 변환 테스트 페이지</p>
+
         <div class="card">
-            <div class="header">
-                <h1>법률 문서 OCR 서비스</h1>
-                <p>초가성비 디지털 변환 - 99.99% 정확도 목표</p>
-                <div class="pricing-badge">페이지당 50원</div>
+            <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+                <div class="upload-icon">📄</div>
+                <h3>PDF 또는 이미지 파일을 드래그하세요</h3>
+                <p>또는 클릭하여 파일 선택 (최대 5,000페이지 지원)</p>
+                <button class="btn" type="button">파일 선택하기</button>
+            </div>
+            <input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.tiff,.bmp,.webp">
+
+            <div class="file-info" id="fileInfo">
+                <strong>선택된 파일:</strong> <span id="fileName"></span>
             </div>
 
-            <div class="content">
-                <!-- Upload Zone -->
-                <div class="upload-zone" id="uploadZone">
-                    <div class="upload-icon">📄</div>
-                    <h3>파일을 드래그하거나 클릭하세요</h3>
-                    <p>PDF (최대 5000페이지), PNG, JPG, TIFF 지원</p>
-                    <input type="file" class="file-input" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.tiff,.bmp">
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
                 </div>
-
-                <!-- File Info -->
-                <div class="file-info" id="fileInfo">
-                    <div class="file-info-row">
-                        <span class="file-info-label">파일명</span>
-                        <span class="file-info-value" id="fileName">-</span>
-                    </div>
-                    <div class="file-info-row">
-                        <span class="file-info-label">파일 크기</span>
-                        <span class="file-info-value" id="fileSize">-</span>
-                    </div>
-                    <div class="file-info-row">
-                        <span class="file-info-label">예상 비용</span>
-                        <span class="file-info-value" id="estimatedPrice">-</span>
-                    </div>
+                <div class="progress-info">
+                    <span id="pageInfo">0/0 페이지</span>
+                    <span id="progressPercent">0%</span>
                 </div>
-
-                <!-- Options -->
-                <div class="options">
-                    <h4>처리 옵션</h4>
-                    <div class="option-row">
-                        <input type="checkbox" id="applyGemini" checked>
-                        <label for="applyGemini">Gemini AI 교정 적용 (권장)</label>
-                    </div>
-                </div>
-
-                <!-- Action Buttons -->
-                <div class="action-buttons">
-                    <button class="btn btn-secondary" id="resetBtn" style="display: none;">다시 선택</button>
-                    <button class="btn btn-primary" id="uploadBtn" disabled>OCR 시작</button>
-                </div>
-
-                <!-- Progress Section -->
-                <div class="progress-section" id="progressSection">
-                    <div class="progress-header">
-                        <span class="progress-title">처리 중...</span>
-                        <span class="progress-percent" id="progressPercent">0%</span>
-                    </div>
-                    <div class="progress-bar-container">
-                        <div class="progress-bar" id="progressBar" style="width: 0%"></div>
-                    </div>
-                    <div class="progress-status" id="progressStatus">대기 중...</div>
-                </div>
-
-                <!-- Result Section -->
-                <div class="result-section" id="resultSection">
-                    <div class="result-header">
-                        <h3>처리 완료!</h3>
-                        <div class="result-stats">
-                            <div class="result-stat">
-                                <div class="result-stat-value" id="resultPages">0</div>
-                                <div class="result-stat-label">페이지</div>
-                            </div>
-                            <div class="result-stat">
-                                <div class="result-stat-value" id="resultTables">0</div>
-                                <div class="result-stat-label">표</div>
-                            </div>
-                            <div class="result-stat">
-                                <div class="result-stat-value" id="resultTime">0s</div>
-                                <div class="result-stat-label">처리 시간</div>
-                            </div>
-                            <div class="result-stat">
-                                <div class="result-stat-value" id="resultPrice">0원</div>
-                                <div class="result-stat-label">비용</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="result-content">
-                        <pre id="resultText"></pre>
-                    </div>
-                    <div class="result-actions">
-                        <button class="btn btn-secondary" onclick="copyToClipboard()">복사</button>
-                        <button class="btn btn-primary" onclick="downloadMarkdown()">다운로드</button>
-                        <button class="btn btn-secondary" onclick="resetAll()">새 파일</button>
-                    </div>
+                <div class="status-message">
+                    <span class="spinner"></span>
+                    <span id="statusMessage">처리 중...</span>
                 </div>
             </div>
 
-            <div class="footer">
-                <p>API 문서: <a href="/docs" target="_blank">/docs</a> |
-                   모니터링: <a href="http://localhost:5555" target="_blank">Flower</a></p>
-                <p style="margin-top: 8px;">GOT-OCR + PaddleOCR + Gemini AI 기반</p>
+            <div class="error-message" id="errorMessage"></div>
+
+            <div class="result-container" id="resultContainer">
+                <div class="result-header">
+                    <span class="icon">✅</span>
+                    <h3>변환 완료!</h3>
+                </div>
+                <div class="result-buttons">
+                    <button class="btn" onclick="downloadResult('markdown')">📥 Markdown 다운로드</button>
+                    <button class="btn btn-secondary" onclick="downloadResult('html')">📥 HTML 다운로드</button>
+                    <button class="btn btn-secondary" onclick="viewResult('html')">👁️ HTML 미리보기</button>
+                </div>
+                <div class="info-box" id="resultInfo"></div>
+                <h4 style="margin: 20px 0 10px; color: #888;">미리보기:</h4>
+                <div class="preview-box" id="previewBox"></div>
+                <button class="btn btn-secondary" style="margin-top: 20px; width: 100%;" onclick="resetUpload()">다른 파일 변환하기</button>
             </div>
+        </div>
+
+        <div class="api-docs-link">
+            <a href="/docs" target="_blank">📚 API 문서 보기 (Swagger UI)</a>
         </div>
     </div>
 
-    <!-- Toast -->
-    <div class="toast" id="toast"></div>
-
     <script>
-        // Elements
         const uploadZone = document.getElementById('uploadZone');
         const fileInput = document.getElementById('fileInput');
         const fileInfo = document.getElementById('fileInfo');
-        const uploadBtn = document.getElementById('uploadBtn');
-        const resetBtn = document.getElementById('resetBtn');
-        const progressSection = document.getElementById('progressSection');
-        const resultSection = document.getElementById('resultSection');
+        const fileName = document.getElementById('fileName');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressFill = document.getElementById('progressFill');
+        const pageInfo = document.getElementById('pageInfo');
+        const progressPercent = document.getElementById('progressPercent');
+        const statusMessage = document.getElementById('statusMessage');
+        const errorMessage = document.getElementById('errorMessage');
+        const resultContainer = document.getElementById('resultContainer');
+        const resultInfo = document.getElementById('resultInfo');
+        const previewBox = document.getElementById('previewBox');
 
-        let selectedFile = null;
         let currentTaskId = null;
-        let pollInterval = null;
-        let currentResult = null;
+        let pollingInterval = null;
 
-        // Drag and Drop
-        uploadZone.addEventListener('click', () => fileInput.click());
-
+        // Drag and drop handlers
         uploadZone.addEventListener('dragover', (e) => {
             e.preventDefault();
             uploadZone.classList.add('dragover');
@@ -525,197 +312,180 @@
             uploadZone.classList.remove('dragover');
             const files = e.dataTransfer.files;
             if (files.length > 0) {
-                handleFileSelect(files[0]);
+                handleFile(files[0]);
             }
         });
 
         fileInput.addEventListener('change', (e) => {
             if (e.target.files.length > 0) {
-                handleFileSelect(e.target.files[0]);
+                handleFile(e.target.files[0]);
             }
         });
 
-        function handleFileSelect(file) {
-            selectedFile = file;
+        async function handleFile(file) {
+            const validTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/tiff', 'image/bmp', 'image/webp'];
+            const ext = file.name.toLowerCase().split('.').pop();
+            const validExtensions = ['pdf', 'png', 'jpg', 'jpeg', 'tiff', 'bmp', 'webp'];
 
-            // Update UI
-            document.getElementById('fileName').textContent = file.name;
-            document.getElementById('fileSize').textContent = formatFileSize(file.size);
-
-            // Estimate price (rough estimate: 1 page per 100KB for images, check PDF later)
-            let estimatedPages = file.type === 'application/pdf' ? '확인 중...' : 1;
-            document.getElementById('estimatedPrice').textContent =
-                typeof estimatedPages === 'number' ? `${estimatedPages * 50}원` : estimatedPages;
-
-            fileInfo.classList.add('active');
-            uploadBtn.disabled = false;
-            resetBtn.style.display = 'inline-block';
-        }
-
-        function formatFileSize(bytes) {
-            if (bytes < 1024) return bytes + ' B';
-            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-        }
-
-        // Reset
-        resetBtn.addEventListener('click', resetAll);
-
-        function resetAll() {
-            selectedFile = null;
-            currentTaskId = null;
-            currentResult = null;
-
-            if (pollInterval) {
-                clearInterval(pollInterval);
-                pollInterval = null;
+            if (!validTypes.includes(file.type) && !validExtensions.includes(ext)) {
+                showError('지원하지 않는 파일 형식입니다. PDF 또는 이미지 파일을 업로드하세요.');
+                return;
             }
 
-            fileInput.value = '';
-            fileInfo.classList.remove('active');
-            uploadBtn.disabled = true;
-            resetBtn.style.display = 'none';
-            progressSection.classList.remove('active');
-            resultSection.classList.remove('active');
-        }
+            fileName.textContent = file.name + ' (' + (file.size / 1024 / 1024).toFixed(2) + ' MB)';
+            fileInfo.classList.add('active');
 
-        // Upload
-        uploadBtn.addEventListener('click', startUpload);
-
-        async function startUpload() {
-            if (!selectedFile) return;
-
-            const formData = new FormData();
-            formData.append('file', selectedFile);
-
-            const applyGemini = document.getElementById('applyGemini').checked;
+            hideError();
+            resultContainer.classList.remove('active');
+            progressContainer.classList.add('active');
+            progressFill.style.width = '0%';
+            progressPercent.textContent = '0%';
+            statusMessage.textContent = '파일 업로드 중...';
 
             try {
-                uploadBtn.disabled = true;
-                uploadBtn.textContent = '업로드 중...';
+                const formData = new FormData();
+                formData.append('file', file);
 
-                const response = await fetch(`/ocr/upload?apply_gemini=${applyGemini}`, {
+                const response = await fetch('/ocr/upload', {
                     method: 'POST',
                     body: formData
                 });
 
-                const data = await response.json();
-
-                if (response.ok) {
-                    currentTaskId = data.task_id;
-
-                    // Update estimated price
-                    if (data.estimated_price_krw) {
-                        document.getElementById('estimatedPrice').textContent = `${data.estimated_price_krw.toLocaleString()}원`;
-                    }
-
-                    showToast('처리가 시작되었습니다', 'success');
-                    startPolling();
-                    progressSection.classList.add('active');
-                } else {
-                    throw new Error(data.detail || '업로드 실패');
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || '업로드 실패');
                 }
+
+                const data = await response.json();
+                currentTaskId = data.task_id;
+
+                statusMessage.textContent = 'OCR 처리 시작...';
+                pageInfo.textContent = '0/' + (data.estimated_pages || '?') + ' 페이지';
+
+                startPolling();
+
             } catch (error) {
-                showToast(error.message, 'error');
-                uploadBtn.disabled = false;
-                uploadBtn.textContent = 'OCR 시작';
+                showError(error.message);
+                progressContainer.classList.remove('active');
             }
         }
 
-        // Polling
         function startPolling() {
-            pollInterval = setInterval(checkProgress, 1000);
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+            }
+            pollingInterval = setInterval(checkStatus, 1500);
         }
 
-        async function checkProgress() {
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+        }
+
+        async function checkStatus() {
             if (!currentTaskId) return;
 
             try {
-                const response = await fetch(`/ocr/status/${currentTaskId}`);
+                const response = await fetch('/ocr/status/' + currentTaskId);
                 const data = await response.json();
 
-                // Update progress UI
-                const progress = data.progress || 0;
-                document.getElementById('progressPercent').textContent = `${progress}%`;
-                document.getElementById('progressBar').style.width = `${progress}%`;
-                document.getElementById('progressStatus').textContent = data.status || '처리 중...';
+                progressFill.style.width = (data.progress || 0) + '%';
+                progressPercent.textContent = (data.progress || 0) + '%';
 
                 if (data.current_page && data.total_pages) {
-                    document.getElementById('progressStatus').textContent =
-                        `${data.status} (${data.current_page}/${data.total_pages} 페이지)`;
+                    pageInfo.textContent = data.current_page + '/' + data.total_pages + ' 페이지';
                 }
 
-                // Check completion
-                if (data.state === 'completed') {
-                    clearInterval(pollInterval);
-                    pollInterval = null;
-                    showResult(data.result);
-                } else if (data.state === 'failed') {
-                    clearInterval(pollInterval);
-                    pollInterval = null;
-                    showToast(data.error || '처리 실패', 'error');
-                    uploadBtn.disabled = false;
-                    uploadBtn.textContent = 'OCR 시작';
+                statusMessage.textContent = data.status_message || data.status || '처리 중...';
+
+                if (data.state === 'completed' || data.status === 'completed') {
+                    stopPolling();
+                    showResult(data);
+                } else if (data.state === 'failed' || data.status === 'failed') {
+                    stopPolling();
+                    showError(data.error || '처리 중 오류가 발생했습니다.');
+                    progressContainer.classList.remove('active');
                 }
+
             } catch (error) {
-                console.error('Progress check error:', error);
+                console.error('Polling error:', error);
             }
         }
 
-        // Show Result
-        function showResult(result) {
-            currentResult = result;
+        function showResult(data) {
+            progressContainer.classList.remove('active');
+            resultContainer.classList.add('active');
 
-            progressSection.classList.remove('active');
-            resultSection.classList.add('active');
+            const result = data.full_result || data.result || {};
+            const pageCount = result.page_count || 1;
+            const processingTime = result.processing_time ? result.processing_time.toFixed(1) : '?';
 
-            document.getElementById('resultPages').textContent = result.page_count || 1;
-            document.getElementById('resultTables').textContent = result.total_tables || result.tables_count || 0;
-            document.getElementById('resultTime').textContent =
-                result.processing_time ? `${result.processing_time.toFixed(1)}s` : '-';
-            document.getElementById('resultPrice').textContent =
-                result.price_krw ? `${result.price_krw.toLocaleString()}원` : `${(result.page_count || 1) * 50}원`;
+            let infoHtml = '<strong>처리 완료:</strong> ' + pageCount + '페이지<br>';
+            infoHtml += '<strong>처리 시간:</strong> ' + processingTime + '초';
+            if (result.output_dir) {
+                infoHtml += '<br><strong>출력 폴더:</strong> ' + result.output_dir;
+            }
+            resultInfo.innerHTML = infoHtml;
 
-            document.getElementById('resultText').textContent = result.markdown || result.raw_text || '';
-
-            uploadBtn.disabled = false;
-            uploadBtn.textContent = 'OCR 시작';
-
-            showToast('처리 완료!', 'success');
+            const markdown = data.result || result.markdown || '';
+            previewBox.textContent = markdown.substring(0, 2000) + (markdown.length > 2000 ? '\n\n... (더 보기는 다운로드 후 확인)' : '');
         }
 
-        // Copy to clipboard
-        function copyToClipboard() {
-            if (!currentResult) return;
-
-            navigator.clipboard.writeText(currentResult.markdown || currentResult.raw_text || '')
-                .then(() => showToast('클립보드에 복사되었습니다', 'success'))
-                .catch(() => showToast('복사 실패', 'error'));
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.add('active');
         }
 
-        // Download markdown
-        function downloadMarkdown() {
-            if (!currentResult) return;
-
-            const content = currentResult.markdown || currentResult.raw_text || '';
-            const blob = new Blob([content], { type: 'text/markdown' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `ocr_result_${new Date().toISOString().slice(0, 10)}.md`;
-            a.click();
-            URL.revokeObjectURL(url);
+        function hideError() {
+            errorMessage.classList.remove('active');
         }
 
-        // Toast
-        function showToast(message, type = 'info') {
-            const toast = document.getElementById('toast');
-            toast.textContent = message;
-            toast.className = 'toast show ' + type;
+        async function downloadResult(format) {
+            if (!currentTaskId) return;
 
-            setTimeout(() => {
-                toast.classList.remove('show');
-            }, 3000);
+            try {
+                const response = await fetch('/ocr/download/' + currentTaskId + '?format=' + format);
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'ocr_result.' + (format === 'markdown' ? 'md' : format);
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            } catch (error) {
+                showError('다운로드 중 오류가 발생했습니다.');
+            }
+        }
+
+        async function viewResult(format) {
+            if (!currentTaskId) return;
+
+            try {
+                const response = await fetch('/ocr/result/' + currentTaskId + '?format=' + format);
+                if (format === 'html') {
+                    const html = await response.text();
+                    const newWindow = window.open('', '_blank');
+                    newWindow.document.write(html);
+                    newWindow.document.close();
+                }
+            } catch (error) {
+                showError('미리보기를 불러오는 중 오류가 발생했습니다.');
+            }
+        }
+
+        function resetUpload() {
+            currentTaskId = null;
+            stopPolling();
+            fileInput.value = '';
+            fileInfo.classList.remove('active');
+            progressContainer.classList.remove('active');
+            resultContainer.classList.remove('active');
+            hideError();
+            progressFill.style.width = '0%';
         }
     </script>
 </body>
